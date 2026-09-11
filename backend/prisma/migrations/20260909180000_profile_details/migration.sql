@@ -1,0 +1,6 @@
+ALTER TABLE "User"
+ADD COLUMN "fullName" TEXT,
+ADD COLUMN "birthDate" DATE,
+ADD COLUMN "bio" TEXT,
+ADD COLUMN "location" TEXT,
+ADD COLUMN "website" TEXT;

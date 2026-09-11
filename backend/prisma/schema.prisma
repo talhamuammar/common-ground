@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/profile-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  fullName  String?
+  birthDate DateTime? @db.Date
+  bio       String?
+  location  String?
+  locationLat Float?
+  locationLng Float?
+  hometown  String?
+  hometownLat Float?
+  hometownLng Float?
+  work      String?
+  education String?
+  pronouns  String?
+  relationship String?
+  languages String?
+  interests String?
+  website   String?
+  github    String?
+  twitter   String?
+  linkedin  String?
+  instagram String?
+  avatarUrl String?
+  coverUrl  String?
+  isVerified Boolean  @default(false)
+  theme     String   @default("dark")
+  createdAt DateTime @default(now())
+  posts     Post[]
+  following Follow[] @relation("Follower")
+  followers Follow[] @relation("Following")
+  friendshipsAsFirst  Friendship[] @relation("FriendOne")
+  friendshipsAsSecond Friendship[] @relation("FriendTwo")
+  comments  Comment[]
+  likes     Like[]
+  commentLikes CommentLike[]
+  bookmarks Bookmark[]
+  notificationsReceived Notification[] @relation("NotificationsReceived")
+  notificationsTriggered Notification[] @relation("NotificationsTriggered")
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  content   String
+  imageUrl  String?
+  imageUrls String[] @default([])
+  createdAt DateTime @default(now())
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments  Comment[]
+  likes     Like[]
+  bookmarks Bookmark[]
+  notifications Notification[]
+
+  @@index([createdAt])
+  @@index([authorId])
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  content   String
+  createdAt DateTime @default(now())
+  postId    Int
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentId  Int?
+  parent    Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+  likes     CommentLike[]
+  notifications Notification[]
+
+  @@index([postId])
+  @@index([authorId])
+  @@index([parentId])
+}
+
+model Like {
+  userId    Int
+  postId    Int
+  type      String   @default("LIKE")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([postId])
+}
+
+model CommentLike {
+  userId    Int
+  commentId Int
+  type      String   @default("LIKE")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, commentId])
+  @@index([commentId])
+}
+
+model Follow {
+  followerId  Int
+  followingId Int
+  createdAt   DateTime @default(now())
+  follower    User @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followingId])
+  @@index([followingId])
+}
+
+model Friendship {
+  friendOneId Int
+  friendTwoId Int
+  createdAt   DateTime @default(now())
+  friendOne   User @relation("FriendOne", fields: [friendOneId], references: [id], onDelete: Cascade)
+  friendTwo   User @relation("FriendTwo", fields: [friendTwoId], references: [id], onDelete: Cascade)
+
+  @@id([friendOneId, friendTwoId])
+  @@index([friendTwoId])
+}
+
+model Bookmark {
+  userId    Int
+  postId    Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([postId])
+  @@index([userId])
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  recipientId Int
+  recipient   User     @relation("NotificationsReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+  actorId     Int
+  actor       User     @relation("NotificationsTriggered", fields: [actorId], references: [id], onDelete: Cascade)
+  type        String
+  postId      Int?
+  post        Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId   Int?
+  comment     Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  content     String?
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId, read])
+  @@index([recipientId, createdAt])
+  @@index([actorId])
+}
+

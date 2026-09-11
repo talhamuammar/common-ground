@@ -1,0 +1,8 @@
+{
+  "name": "common-ground",
+  "private": true,
+  "scripts": {
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
+    "typecheck": "npm run typecheck --prefix frontend && npx tsc --noEmit --project backend/tsconfig.json"
+  }
+}

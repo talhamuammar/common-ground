@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.next-dev/
+dist/
+.env
+.env.*
+*.log
+backend/generated/
+backend/uploads/
