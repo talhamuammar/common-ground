@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
 import { useAuth } from '../../components/auth-provider';
 import { API_URL, getErrorMessage } from '../../lib/api';
+import { ConfirmationModal } from '../../components/confirmation-modal';
 import {
   Shield,
   User,
@@ -18,6 +19,8 @@ import {
   ArrowLeft,
   Calendar,
   LogOut,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -42,6 +45,32 @@ export default function SettingsPage() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  // Delete account state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  async function handleDeleteAccount() {
+    if (!token) return;
+    setDeletingAccount(true);
+    setDeleteError('');
+    try {
+      const response = await fetch(`${API_URL}/auth/me`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        throw new Error(getErrorMessage(payload, 'Could not delete your account'));
+      }
+      logout();
+      router.push('/login');
+    } catch (cause) {
+      setDeleteError(cause instanceof Error ? cause.message : 'Could not delete your account');
+      setDeletingAccount(false);
+    }
+  }
 
   // Initialize form fields once user is loaded
   useEffect(() => {
@@ -497,7 +526,58 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* 4. Danger Zone - Delete Account */}
+        <section className="rounded-2xl border border-rose-200/90 dark:border-rose-950/60 bg-rose-50/25 dark:bg-rose-950/10 p-5 sm:p-6 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-bold text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
+                <AlertTriangle size={16} />
+                <span>Delete Account</span>
+              </h3>
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400 max-w-xl leading-relaxed">
+                Permanently delete your account, posts, comments, likes, friendships, bookmarks, and all associated data from the database. This action is irreversible.
+              </p>
+              {deleteError && (
+                <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                  <AlertCircle size={13} />
+                  <span>{deleteError}</span>
+                </p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteError('');
+                setShowDeleteModal(true);
+              }}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 text-xs font-semibold shadow-xs transition-all cursor-pointer shrink-0 active:scale-[0.98]"
+            >
+              <Trash2 size={14} />
+              <span>Delete Account</span>
+            </button>
+          </div>
+        </section>
+
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showDeleteModal}
+        title="Delete account permanently?"
+        message={`Are you sure you want to delete your account (@${user.username})? This will permanently erase your profile, posts, comments, reactions, bookmarks, and all personal data from the database. This action cannot be undone.`}
+        confirmText="Yes, delete my account"
+        cancelText="Keep my account"
+        isDestructive={true}
+        isLoading={deletingAccount}
+        onConfirm={handleDeleteAccount}
+        onCancel={() => {
+          if (!deletingAccount) {
+            setShowDeleteModal(false);
+            setDeleteError('');
+          }
+        }}
+      />
     </div>
   );
 }

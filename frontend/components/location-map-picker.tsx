@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { MapPin, Home, Search, Navigation, Loader2, X, Check } from 'lucide-react';
+import { MapPin, Home, Search, Navigation, Loader2, X } from 'lucide-react';
 import type * as LeafletType from 'leaflet';
 
 interface LocationMapPickerProps {
@@ -428,16 +428,9 @@ export function LocationMapPicker({
           )}
           <span>{currentLoc || (icon === 'home' ? 'Click on map to pin your hometown' : 'Click on map to pin your location')}</span>
         </div>
-
-        {currentLat && currentLng && (
-          <div className="absolute top-2.5 right-2.5 z-[10] hidden sm:flex items-center gap-1 rounded-full bg-black/75 px-2.5 py-0.5 text-[10px] font-mono text-accent-fg backdrop-blur-md border border-white/10 pointer-events-none">
-            <Check size={10} />
-            <span>{currentLat.toFixed(4)}, {currentLng.toFixed(4)}</span>
-          </div>
-        )}
       </div>
       <p className="text-[11px] text-slate-400 dark:text-slate-500">
-        💡 Click on the map, drag the pin, or search any city to save your coordinates.
+        💡 Search any city, click on the map, or drag the pin to set your location.
       </p>
     </div>
   );

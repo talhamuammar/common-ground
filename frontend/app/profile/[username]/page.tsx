@@ -1216,9 +1216,19 @@ export default function PublicProfilePage() {
               {workItems.map((item, idx) => (
                 <li key={`sb-work-${idx}`} className="flex items-start gap-2.5">
                   <Briefcase className="size-4 text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
-                  <span className="leading-snug">
-                    <span className="text-slate-500 dark:text-slate-400">{item.isCurrent ? 'Works at ' : 'Worked at '}</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-100">{item.name}</span>
+                  <span className="leading-snug text-slate-700 dark:text-slate-200">
+                    {item.position && item.name ? (
+                      <>
+                        {!item.isCurrent && <span className="text-slate-500 dark:text-slate-400">Former </span>}
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.position}</span>
+                        <span className="text-slate-500 dark:text-slate-400"> at </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.name}</span>
+                      </>
+                    ) : (
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">
+                        {formatWorkText(item)}
+                      </span>
+                    )}
                   </span>
                 </li>
               ))}
@@ -1226,9 +1236,21 @@ export default function PublicProfilePage() {
               {educationItems.map((item, idx) => (
                 <li key={`sb-edu-${idx}`} className="flex items-start gap-2.5">
                   <GraduationCap className="size-4 text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
-                  <span className="leading-snug">
-                    <span className="text-slate-500 dark:text-slate-400">{item.isCurrent ? 'Studies at ' : 'Studied at '}</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-100">{item.name}</span>
+                  <span className="leading-snug text-slate-700 dark:text-slate-200">
+                    {item.subject && item.name ? (
+                      <>
+                        <span className="text-slate-500 dark:text-slate-400">
+                          {item.isCurrent ? 'Studies ' : 'Studied '}
+                        </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.subject}</span>
+                        <span className="text-slate-500 dark:text-slate-400"> at </span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.name}</span>
+                      </>
+                    ) : (
+                      <span className="font-semibold text-slate-800 dark:text-slate-100">
+                        {formatEducationText(item)}
+                      </span>
+                    )}
                   </span>
                 </li>
               ))}
@@ -1258,8 +1280,8 @@ export default function PublicProfilePage() {
                   {/* Mini Map Thumbnail in Sidebar */}
                   <LocationMapPreview
                     location={profile.location}
-                    lat={profile.locationLat}
-                    lng={profile.locationLng}
+                    lat={null}
+                    lng={null}
                     heightClass="h-28"
                     showDetails={false}
                   />
@@ -1275,8 +1297,8 @@ export default function PublicProfilePage() {
                   {/* Mini Map Thumbnail for Hometown in Sidebar */}
                   <LocationMapPreview
                     location={profile.hometown}
-                    lat={profile.hometownLat}
-                    lng={profile.hometownLng}
+                    lat={null}
+                    lng={null}
                     icon="home"
                     color="amber"
                     label="Hometown"
@@ -1539,13 +1561,8 @@ export default function PublicProfilePage() {
                         <MapPin size={14} className="text-accent-fg shrink-0" />
                         Current Living Location
                       </span>
-                      <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-between">
+                      <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100">
                         <span>{profile.location || 'Not specified'}</span>
-                        {profile.locationLat && profile.locationLng && (
-                          <span className="font-mono text-xs text-accent-fg bg-accent-subtle border border-accent-subtle-border px-2 py-0.5 rounded">
-                            {profile.locationLat.toFixed(2)}°, {profile.locationLng.toFixed(2)}°
-                          </span>
-                        )}
                       </p>
                     </div>
                     {profile.hometown && (
@@ -1554,13 +1571,8 @@ export default function PublicProfilePage() {
                           <Home size={14} className="text-amber-500 shrink-0" />
                           Hometown & Origin
                         </span>
-                        <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100 flex items-center justify-between">
+                        <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100">
                           <span>{profile.hometown}</span>
-                          {profile.hometownLat && profile.hometownLng && (
-                            <span className="font-mono text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
-                              {profile.hometownLat.toFixed(2)}°, {profile.hometownLng.toFixed(2)}°
-                            </span>
-                          )}
                         </p>
                       </div>
                     )}
@@ -1583,8 +1595,8 @@ export default function PublicProfilePage() {
                           </div>
                           <LocationMapPreview
                             location={profile.location}
-                            lat={profile.locationLat}
-                            lng={profile.locationLng}
+                            lat={null}
+                            lng={null}
                             label="Current Living Location"
                             icon="pin"
                             color="emerald"
@@ -1608,8 +1620,8 @@ export default function PublicProfilePage() {
                           </div>
                           <LocationMapPreview
                             location={profile.hometown}
-                            lat={profile.hometownLat}
-                            lng={profile.hometownLng}
+                            lat={null}
+                            lng={null}
                             label="Hometown / Place of Origin"
                             icon="home"
                             color="amber"

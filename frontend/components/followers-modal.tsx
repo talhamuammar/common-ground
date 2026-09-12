@@ -83,26 +83,47 @@ export function FollowersModal({
     return () => window.removeEventListener(SYNC_FOLLOW_EVENT, handleFollowEvent);
   }, []);
 
-  // Check initial follow states when modal opens
+  // Synchronize follow states whenever modal opens or list changes
   useEffect(() => {
-    if (!isOpen || !token) return;
+    if (!isOpen) return;
 
-    // Fetch who current user is following to prefill buttons
-    fetch(`${API_URL}/users/following`, {
+    const isOwnProfile =
+      currentUser?.username &&
+      profileUsername &&
+      currentUser.username.toLowerCase() === profileUsername.toLowerCase();
+
+    // If viewing own profile, everyone in the `following` list is followed by the current user
+    if (isOwnProfile && Array.isArray(following) && following.length > 0) {
+      const initialMap: Record<number, boolean> = {};
+      following.forEach((u) => {
+        initialMap[u.id] = true;
+      });
+      setFollowingMap((prev) => ({ ...initialMap, ...prev }));
+    }
+
+    if (!token) return;
+
+    // Fetch current user's following list to prefill buttons accurately
+    fetch(`${API_URL}/users/me/connections`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: FollowerUser[]) => {
-        if (Array.isArray(data)) {
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const followedUsers: FollowerUser[] = Array.isArray(data?.following)
+          ? data.following
+          : Array.isArray(data)
+          ? data
+          : [];
+        if (followedUsers.length > 0) {
           const map: Record<number, boolean> = {};
-          data.forEach((u) => {
+          followedUsers.forEach((u) => {
             map[u.id] = true;
           });
           setFollowingMap((prev) => ({ ...map, ...prev }));
         }
       })
       .catch(() => {});
-  }, [isOpen, token]);
+  }, [isOpen, token, profileUsername, currentUser?.username, following]);
 
   const currentList = activeTab === 'followers' ? followers : following;
 

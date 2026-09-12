@@ -72,6 +72,12 @@ export class AuthController {
     return this.auth.removeCover(request.user.userId);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Delete('me')
+  deleteAccount(@Req() request: { user: AuthenticatedUser }) {
+    return this.auth.deleteAccount(request.user.userId);
+  }
+
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);

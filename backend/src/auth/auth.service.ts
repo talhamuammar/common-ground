@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException, NotFoundException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '../../generated/profile-client';
 import * as argon2 from 'argon2';
@@ -154,12 +154,8 @@ export class AuthService {
       data: {
         ...(dto.fullName !== undefined && { fullName: dto.fullName.trim() || null }),
         ...(dto.bio !== undefined && { bio: dto.bio?.trim() || null }),
-        ...(dto.location !== undefined && { location: dto.location?.trim() || null }),
-        ...(dto.locationLat !== undefined && { locationLat: dto.locationLat }),
-        ...(dto.locationLng !== undefined && { locationLng: dto.locationLng }),
-        ...(dto.hometown !== undefined && { hometown: dto.hometown?.trim() || null }),
-        ...(dto.hometownLat !== undefined && { hometownLat: dto.hometownLat }),
-        ...(dto.hometownLng !== undefined && { hometownLng: dto.hometownLng }),
+        ...(dto.location !== undefined && { location: dto.location?.trim() || null, locationLat: null, locationLng: null }),
+        ...(dto.hometown !== undefined && { hometown: dto.hometown?.trim() || null, hometownLat: null, hometownLng: null }),
         ...(dto.work !== undefined && { work: dto.work?.trim() || null }),
         ...(dto.education !== undefined && { education: dto.education?.trim() || null }),
         ...(dto.pronouns !== undefined && { pronouns: dto.pronouns?.trim() || null }),
@@ -237,5 +233,18 @@ export class AuthService {
     });
 
     return { message: 'Password updated successfully' };
+  }
+
+  async deleteAccount(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Account not found');
+
+    // Deletes the user; PostgreSQL CASCADE removes all associated posts, comments, likes,
+    // comment likes, bookmarks, friendships, follows, and notifications automatically.
+    await this.prisma.user.delete({ where: { id: userId } });
+    return { message: 'Account and all associated data have been permanently deleted.' };
   }
 }

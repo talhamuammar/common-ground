@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ChangeEvent, FormEvent, useState } from 'react';
+import { ChangeEvent, FormEvent, useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../../components/auth-provider';
 import { UserAvatar } from '../../../components/user-avatar';
 import { LocationMapPicker } from '../../../components/location-map-picker';
@@ -11,31 +11,40 @@ import {
   WorkItem, EducationItem, parseWorkItems, parseEducationItems,
   serializeWorkItems, serializeEducationItems, formatWorkText, formatEducationText
 } from '../../../lib/work-study';
-import { ArrowLeft, Briefcase, GraduationCap, Globe, MessageSquare, MapPin, Home, User, AtSign, Plus, Trash2, Save } from 'lucide-react';
+import { ArrowLeft, Briefcase, GraduationCap, Globe, MessageSquare, MapPin, Home, User, AtSign, Plus, Trash2, Save, Check, AlertCircle } from 'lucide-react';
 
 type UploadKind = 'avatar' | 'cover';
 
 export default function EditProfilePage() {
   const { user, token, ready, refresh } = useAuth();
   const [saving, setSaving] = useState(false);
+  const [recentlySaved, setRecentlySaved] = useState(false);
   const [uploading, setUploading] = useState<UploadKind | null>(null);
   const [confirmDeleteKind, setConfirmDeleteKind] = useState<UploadKind | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  // Location and map coordinates state
+  // Location and hometown state (location strings only, no lat/long stored)
   const [locationStr, setLocationStr] = useState(user?.location || '');
-  const [locationLat, setLocationLat] = useState<number | null>(user?.locationLat ?? null);
-  const [locationLng, setLocationLng] = useState<number | null>(user?.locationLng ?? null);
-
-  // Hometown and map coordinates state
   const [hometownStr, setHometownStr] = useState(user?.hometown || '');
-  const [hometownLat, setHometownLat] = useState<number | null>(user?.hometownLat ?? null);
-  const [hometownLng, setHometownLng] = useState<number | null>(user?.hometownLng ?? null);
 
   // Work and Education multiple items state
   const [workItems, setWorkItems] = useState<WorkItem[]>(() => parseWorkItems(user?.work));
   const [educationItems, setEducationItems] = useState<EducationItem[]>(() => parseEducationItems(user?.education));
+
+  // Synchronize state when user profile finishes loading asynchronously (e.g. on page refresh)
+  const loadedUserKeyRef = useRef<string>('');
+  useEffect(() => {
+    if (!user) return;
+    const userKey = `${user.id}-${user.work || ''}-${user.education || ''}-${user.location || ''}-${user.hometown || ''}`;
+    if (loadedUserKeyRef.current !== userKey && !saving) {
+      loadedUserKeyRef.current = userKey;
+      setWorkItems(parseWorkItems(user.work));
+      setEducationItems(parseEducationItems(user.education));
+      setLocationStr(user.location || '');
+      setHometownStr(user.hometown || '');
+    }
+  }, [user, saving]);
 
   function addWorkItem() {
     setWorkItems((prev) => [
@@ -76,15 +85,15 @@ export default function EditProfilePage() {
     const data = new FormData(event.currentTarget);
     const body: Record<string, unknown> = Object.fromEntries(data.entries());
 
-    // Inject location coordinates
-    body.location = locationStr;
-    body.locationLat = locationLat;
-    body.locationLng = locationLng;
+    // Inject location (do NOT store lat/lng coordinates)
+    body.location = locationStr.trim() || null;
+    body.locationLat = null;
+    body.locationLng = null;
 
-    // Inject hometown coordinates
-    body.hometown = hometownStr;
-    body.hometownLat = hometownLat;
-    body.hometownLng = hometownLng;
+    // Inject hometown (do NOT store lat/lng coordinates)
+    body.hometown = hometownStr.trim() || null;
+    body.hometownLat = null;
+    body.hometownLng = null;
 
     // Inject serialized multiple work & education items
     body.work = serializeWorkItems(workItems);
@@ -106,6 +115,8 @@ export default function EditProfilePage() {
       if (!response.ok) throw new Error(getErrorMessage(payload, 'Could not update your profile'));
       await refresh();
       setMessage('Profile updated successfully.');
+      setRecentlySaved(true);
+      setTimeout(() => setRecentlySaved(false), 4000);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update your profile');
     } finally {
@@ -249,19 +260,16 @@ export default function EditProfilePage() {
             </label>
           </section>
 
-          {/* 3. Work & Education Section with Multiple Items & Current/Past Marks */}
-          <section className="rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0d0d0d] p-5 sm:p-7 shadow-xs space-y-6">
-            <div className="border-b border-zinc-100 dark:border-white/[0.08] pb-3">
+          {/* 3. Work & Education Multiple Items Section */}
+          <section className="rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0d0d0d] p-5 sm:p-7 shadow-xs">
+            <div className="mb-5 border-b border-zinc-100 dark:border-white/[0.08] pb-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Briefcase size={16} className="text-accent-fg" />
-                  <h2 className="font-semibold text-slate-900 dark:text-slate-100">Work & Education</h2>
+                  <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Work & Education</h2>
                 </div>
                 <span className="text-xs text-slate-400 dark:text-slate-500">Multiple positions & schools</span>
               </div>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Add multiple work experiences and schools. Check the box if you currently work or study there (displays as &quot;Works at&quot; / &quot;Studies at&quot; or past tense &quot;Worked at&quot; / &quot;Studied at&quot;).
-              </p>
             </div>
 
             {/* Work Items */}
@@ -298,28 +306,49 @@ export default function EditProfilePage() {
                   {workItems.map((item, index) => (
                     <div
                       key={item.id}
-                      className="rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-slate-50/60 dark:bg-[#151515] p-3.5 space-y-2.5 transition-colors"
+                      className="rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-slate-50/60 dark:bg-[#151515] p-3.5 space-y-3 transition-colors"
                     >
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={item.name}
-                          onChange={(e) => updateWorkItem(index, { name: e.target.value })}
-                          placeholder="e.g. Lead Full-Stack Architect at Ultranet Labs"
-                          className="flex-1 rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#181818] px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                        />
+                      <div className="flex items-start gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                              Company / Workplace
+                            </label>
+                            <input
+                              type="text"
+                              value={item.name}
+                              onChange={(e) => updateWorkItem(index, { name: e.target.value })}
+                              placeholder="e.g. Google, Ultranet Labs"
+                              className="w-full rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#181818] px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                              Position / Role <span className="font-normal text-slate-400 dark:text-slate-500">(optional)</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={item.position || ''}
+                              onChange={(e) => updateWorkItem(index, { position: e.target.value })}
+                              placeholder="e.g. Software Engineer"
+                              className="w-full rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#181818] px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                            />
+                          </div>
+                        </div>
+
                         <button
                           type="button"
                           onClick={() => removeWorkItem(index)}
-                          className="grid size-9 place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer shrink-0"
+                          className="grid size-9 place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer shrink-0 mt-5 sm:mt-5.5"
                           title="Remove this work experience"
                         >
                           <Trash2 size={16} />
                         </button>
                       </div>
 
-                      {/* Currently working toggle mark */}
-                      <div className="flex items-center justify-between pt-1">
+                      {/* Preview & Currently working toggle */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-200/50 dark:border-white/[0.05]">
                         <label className="flex items-center gap-2 cursor-pointer select-none">
                           <input
                             type="checkbox"
@@ -332,15 +361,11 @@ export default function EditProfilePage() {
                           </span>
                         </label>
 
-                        <span
-                          className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                            item.isCurrent
-                              ? 'bg-accent-subtle text-accent-fg border-accent-subtle-border'
-                              : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-zinc-800/60 dark:text-slate-400 dark:border-white/10'
-                          }`}
-                        >
-                          {item.isCurrent ? 'Present ("Works at")' : 'Past ("Worked at")'}
-                        </span>
+                        {formatWorkText(item) && (
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            Preview: <strong className="text-slate-800 dark:text-slate-200">{formatWorkText(item)}</strong>
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -382,28 +407,49 @@ export default function EditProfilePage() {
                   {educationItems.map((item, index) => (
                     <div
                       key={item.id}
-                      className="rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-slate-50/60 dark:bg-[#151515] p-3.5 space-y-2.5 transition-colors"
+                      className="rounded-xl border border-zinc-200/80 dark:border-white/[0.08] bg-slate-50/60 dark:bg-[#151515] p-3.5 space-y-3 transition-colors"
                     >
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={item.name}
-                          onChange={(e) => updateEducationItem(index, { name: e.target.value })}
-                          placeholder="e.g. Computer Science, Stanford University"
-                          className="flex-1 rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#181818] px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                        />
+                      <div className="flex items-start gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 flex-1">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                              School / University
+                            </label>
+                            <input
+                              type="text"
+                              value={item.name}
+                              onChange={(e) => updateEducationItem(index, { name: e.target.value })}
+                              placeholder="e.g. Harvard University, MIT"
+                              className="w-full rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#181818] px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                              Subject / Major <span className="font-normal text-slate-400 dark:text-slate-500">(optional)</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={item.subject || ''}
+                              onChange={(e) => updateEducationItem(index, { subject: e.target.value })}
+                              placeholder="e.g. Computer Science"
+                              className="w-full rounded-lg border border-zinc-200 dark:border-white/10 bg-white dark:bg-[#181818] px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                            />
+                          </div>
+                        </div>
+
                         <button
                           type="button"
                           onClick={() => removeEducationItem(index)}
-                          className="grid size-9 place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer shrink-0"
+                          className="grid size-9 place-items-center rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer shrink-0 mt-5 sm:mt-5.5"
                           title="Remove this study/education"
                         >
                           <Trash2 size={16} />
                         </button>
                       </div>
 
-                      {/* Currently studying toggle mark */}
-                      <div className="flex items-center justify-between pt-1">
+                      {/* Preview & Currently studying toggle */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-200/50 dark:border-white/[0.05]">
                         <label className="flex items-center gap-2 cursor-pointer select-none">
                           <input
                             type="checkbox"
@@ -416,15 +462,11 @@ export default function EditProfilePage() {
                           </span>
                         </label>
 
-                        <span
-                          className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                            item.isCurrent
-                              ? 'bg-accent-subtle text-accent-fg border-accent-subtle-border'
-                              : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-zinc-800/60 dark:text-slate-400 dark:border-white/10'
-                          }`}
-                        >
-                          {item.isCurrent ? 'Present ("Studies at")' : 'Past ("Studied at")'}
-                        </span>
+                        {formatEducationText(item) && (
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            Preview: <strong className="text-slate-800 dark:text-slate-200">{formatEducationText(item)}</strong>
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -448,16 +490,14 @@ export default function EditProfilePage() {
               <div>
                 <LocationMapPicker
                   location={locationStr}
-                  lat={locationLat}
-                  lng={locationLng}
+                  lat={null}
+                  lng={null}
                   label="Current Living Location (City, Region, Country)"
                   placeholder="Search current city or pin on map..."
                   icon="pin"
                   themeColor="emerald"
-                  onChange={(newLoc, newLat, newLng) => {
+                  onChange={(newLoc) => {
                     setLocationStr(newLoc);
-                    setLocationLat(newLat);
-                    setLocationLng(newLng);
                   }}
                 />
               </div>
@@ -466,16 +506,14 @@ export default function EditProfilePage() {
               <div className="pt-4 border-t border-zinc-100 dark:border-white/[0.08]">
                 <LocationMapPicker
                   location={hometownStr}
-                  lat={hometownLat}
-                  lng={hometownLng}
+                  lat={null}
+                  lng={null}
                   label="Hometown / Place of Origin"
                   placeholder="Search your hometown or pin on map..."
                   icon="home"
                   themeColor="amber"
-                  onChange={(newLoc, newLat, newLng) => {
+                  onChange={(newLoc) => {
                     setHometownStr(newLoc);
-                    setHometownLat(newLat);
-                    setHometownLng(newLng);
                   }}
                 />
               </div>
@@ -532,22 +570,46 @@ export default function EditProfilePage() {
             </div>
           </section>
 
-          {/* Submit Button Bar */}
-          <div className="flex items-center gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-7 text-sm font-semibold text-accent-text shadow-sm hover:bg-accent-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Save size={16} />
-              <span>{saving ? 'Saving changes…' : 'Save Changes'}</span>
-            </button>
-            <Link
-              href={`/profile/${encodeURIComponent(user.username)}`}
-              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-zinc-200 dark:border-white/10 px-5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors"
-            >
-              Cancel & View Profile
-            </Link>
+          {/* Submit Button Bar with Instant Save Confirmation */}
+          <div className="space-y-3 pt-2">
+            {(message || error) && (
+              <div
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-medium transition-all animate-in fade-in slide-in-from-bottom-1 ${
+                  error
+                    ? 'bg-red-50 dark:bg-rose-950/40 text-red-700 dark:text-rose-300 border border-red-200 dark:border-rose-900/50'
+                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
+                }`}
+                role="status"
+              >
+                {error ? (
+                  <AlertCircle size={16} className="text-red-600 dark:text-rose-400 shrink-0" />
+                ) : (
+                  <Check size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                )}
+                <span>{error || message}</span>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-6 text-sm font-semibold shadow-sm transition-all cursor-pointer active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 ${
+                  recentlySaved
+                    ? 'bg-emerald-600 text-white shadow-emerald-500/20'
+                    : 'bg-accent text-accent-text hover:bg-accent-hover'
+                }`}
+              >
+                {recentlySaved ? <Check size={16} /> : <Save size={16} />}
+                <span>{saving ? 'Saving changes…' : recentlySaved ? 'Saved successfully!' : 'Save Changes'}</span>
+              </button>
+              <Link
+                href={`/profile/${encodeURIComponent(user.username)}`}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-zinc-200 dark:border-white/10 px-5 text-sm sm:text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors text-center"
+              >
+                Cancel & View Profile
+              </Link>
+            </div>
           </div>
         </form>
 

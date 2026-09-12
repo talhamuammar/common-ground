@@ -25,6 +25,13 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('following')
+  async following(@Req() request: { user: AuthenticatedUser }) {
+    const connections = await this.users.getMyConnections(request.user.userId);
+    return connections.following;
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id/relationship')
   relationship(@Req() request: { user: AuthenticatedUser }, @Param('id', ParseIntPipe) id: number) {
     return this.users.relationship(request.user.userId, id);
