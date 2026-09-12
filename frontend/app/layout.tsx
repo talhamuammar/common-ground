@@ -18,6 +18,9 @@ export const metadata: Metadata = {
     template: '%s · Common Ground',
   },
   description: 'Posts and conversations from the Common Ground community.',
+  icons: {
+    icon: '/icon.svg',
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
