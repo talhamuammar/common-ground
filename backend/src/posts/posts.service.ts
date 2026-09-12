@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CloudinaryService } from '../uploads/cloudinary.service';
 import { generateUniquePostId } from '../common/id-generator';
 
 export type ReactionEvent = {
@@ -49,6 +50,7 @@ function normalizePost<T extends { imageUrl?: string | null; imageUrls?: string[
 
 @Injectable()
 export class PostsService {
+  private readonly logger = new Logger(PostsService.name);
   private readonly reactionEvents$ = new Subject<ReactionEvent>();
 
   get reactionStream() {
@@ -58,6 +60,7 @@ export class PostsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly cloudinary: CloudinaryService,
   ) {}
 
   async create(userId: number, content: string, imageUrls: string[]) {
@@ -242,7 +245,25 @@ export class PostsService {
     if (post.authorId !== userId) {
       throw new ForbiddenException('You are only allowed to delete your own posts');
     }
+
+    // Collect all media URLs before deleting the post record
+    const imagesToDelete: string[] = [];
+    if (post.imageUrl) imagesToDelete.push(post.imageUrl);
+    if (Array.isArray(post.imageUrls)) {
+      imagesToDelete.push(...post.imageUrls);
+    }
+
     await this.prisma.post.delete({ where: { id: postId } });
+
+    // Clean up images from Cloudinary
+    if (imagesToDelete.length > 0) {
+      try {
+        await this.cloudinary.deleteImages(imagesToDelete);
+      } catch (error) {
+        this.logger.warn(`Failed to clean up Cloudinary assets for post ${postId}: ${error}`);
+      }
+    }
+
     return { success: true, id: postId };
   }
 
@@ -428,10 +449,14 @@ export class PostsService {
     }));
   }
 
+  /**
+   * Returns trending topics strictly based on actual hashtags used in posts on this website.
+   * Does NOT use internet fallbacks.
+   */
   async getTrendingTags(limit = 10) {
     const posts = await this.prisma.post.findMany({
       select: { content: true },
-      take: 200,
+      take: 1000,
       orderBy: { createdAt: 'desc' },
     });
 
@@ -442,6 +467,7 @@ export class PostsService {
       if (!post.content) continue;
       const matches = post.content.match(tagRegex);
       if (matches) {
+        // Normalize to lowercase for counting, deduplicate multiple mentions within the same post
         const uniqueInPost = new Set(matches.map((m) => m.toLowerCase()));
         for (const tag of uniqueInPost) {
           counts[tag] = (counts[tag] || 0) + 1;
@@ -452,15 +478,20 @@ export class PostsService {
     const sorted = Object.entries(counts)
       .map(([tag, count]) => ({
         tag,
-        label: tag.replace('#', ''),
+        label: tag.replace(/^#/, ''),
         count,
       }))
       .sort((a, b) => b.count - a.count);
 
-    // Global top trending internet topics to guarantee the top 10 popular tags on internet
-    const popularInternetTags = [
+    return sorted.slice(0, limit);
+  }
+
+  /**
+   * Suggested topics for creators when drafting a new post (distinct from website trending tags).
+   */
+  getSuggestedTags(limit = 10) {
+    const suggestions = [
       'technology',
-      'ai',
       'design',
       'photography',
       'art',
@@ -469,23 +500,14 @@ export class PostsService {
       'mindfulness',
       'startup',
       'innovation',
+      'music',
+      'community',
+      'coding',
     ];
-
-    const existingLabels = new Set(sorted.map((item) => item.label.toLowerCase()));
-
-    for (const internetTag of popularInternetTags) {
-      if (sorted.length >= limit) break;
-      if (!existingLabels.has(internetTag.toLowerCase())) {
-        sorted.push({
-          tag: `#${internetTag}`,
-          label: internetTag,
-          count: 0,
-        });
-        existingLabels.add(internetTag.toLowerCase());
-      }
-    }
-
-    return sorted.slice(0, limit);
+    return suggestions.slice(0, limit).map((label) => ({
+      tag: `#${label}`,
+      label,
+    }));
   }
 }
 

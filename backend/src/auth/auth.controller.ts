@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthenticatedUser } from './jwt.strategy';
@@ -34,6 +34,12 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Delete('me/avatar')
+  removeAvatar(@Req() request: { user: AuthenticatedUser }) {
+    return this.auth.removeAvatar(request.user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch('me')
   updateProfile(@Req() request: { user: AuthenticatedUser }, @Body() dto: UpdateProfileDto) {
     return this.auth.updateProfile(request.user.userId, dto);
@@ -58,6 +64,12 @@ export class AuthController {
     if (!cover) throw new BadRequestException('Choose an image to upload');
     const coverUrl = await this.cloudinary.uploadImage(cover, 'social-app/covers');
     return this.auth.updateCover(request.user.userId, coverUrl);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me/cover')
+  removeCover(@Req() request: { user: AuthenticatedUser }) {
+    return this.auth.removeCover(request.user.userId);
   }
 
   @Post('register')

@@ -49,12 +49,12 @@ export function CreatePostModal({
   const [popularTags, setPopularTags] = useState<string[]>([]);
   const [loadingTags, setLoadingTags] = useState(false);
 
-  // Fetch top 10 internet popular tags dynamically
+  // Fetch suggested topic tags dynamically
   useEffect(() => {
     if (!isOpen || !showTags || popularTags.length > 0) return;
     let active = true;
     setLoadingTags(true);
-    fetch(`${API_URL}/posts/trending-tags`)
+    fetch(`${API_URL}/posts/suggested-tags`)
       .then((res) => (res.ok ? res.json() : []))
       .then((data: { label?: string; tag?: string }[]) => {
         if (!active) return;

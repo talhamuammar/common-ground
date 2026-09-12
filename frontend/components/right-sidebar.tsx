@@ -82,7 +82,7 @@ export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
     }
     fetchTags();
     return () => { active = false; };
-  }, []);
+  }, [posts.length]);
 
   // Load suggestions from DB (top 10 followed users)
   useEffect(() => {
@@ -284,7 +284,7 @@ export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
             <div className="mb-2.5 flex items-center justify-between">
               <div>
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">Trending Topics</h2>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500">Filter feed by hashtag</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500">What people are talking about</p>
               </div>
               <span className="grid size-6 place-items-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-300">
                 <Flame size={13} strokeWidth={2} />

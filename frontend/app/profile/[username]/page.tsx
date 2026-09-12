@@ -7,6 +7,7 @@ import { useAuth } from '../../../components/auth-provider';
 import { useAuthModal } from '../../../components/auth-modal';
 import { ProfilePostList } from '../../../components/profile-post-list';
 import { FullscreenPostModal } from '../../../components/post-modal';
+import { FullscreenMediaModal } from '../../../components/media-modal';
 import { UserAvatar } from '../../../components/user-avatar';
 import { VerifiedBadge } from '../../../components/verified-badge';
 import { LocationMapPreview } from '../../../components/location-map-preview';
@@ -17,7 +18,7 @@ import { parseWorkItems, parseEducationItems, formatWorkText, formatEducationTex
 import {
   Briefcase, GraduationCap, MapPin, Globe, Heart, Calendar,
   Compass, User as UserIcon, Home, Languages, ExternalLink, Edit3, Lock,
-  ChevronDown, ChevronRight, Check, Users, UserPlus, X, Link2
+  ChevronDown, ChevronRight, Check, Users, UserPlus, X, Link2, Camera, Loader2
 } from 'lucide-react';
 
 type ProfileTab = 'timeline' | 'about' | 'photos' | 'followers' | 'following' | 'friends';
@@ -136,7 +137,7 @@ function UserGridList({
 
 export default function PublicProfilePage() {
   const { username } = useParams<{ username: string }>();
-  const { token, user, ready } = useAuth();
+  const { token, user, ready, refresh } = useAuth();
   const { openAuthModal } = useAuthModal();
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [relationship, setRelationship] = useState<Relationship | null>(null);
@@ -146,6 +147,16 @@ export default function PublicProfilePage() {
   const [error, setError] = useState('');
   const [savedPostIds, setSavedPostIds] = useState<number[]>([]);
   const [activePhotoModalPost, setActivePhotoModalPost] = useState<Post | null>(null);
+  const [viewingMediaModal, setViewingMediaModal] = useState<{
+    src: string;
+    title: string;
+    type: 'avatar' | 'cover';
+  } | null>(null);
+  const [isRemovingMedia, setIsRemovingMedia] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+  const coverFileInputRef = useRef<HTMLInputElement | null>(null);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement | null>(null);
@@ -153,7 +164,24 @@ export default function PublicProfilePage() {
   const measuredWidthsRef = useRef<Map<string, number>>(new Map());
   const [visibleCount, setVisibleCount] = useState<number>(6);
 
-  const photoCount = profile?.posts?.filter((p) => Boolean(p.imageUrl)).length ?? 0;
+  const allMediaPhotos = useMemo(() => {
+    if (!profile?.posts) return [];
+    const result: { url: string; post: Post; index: number }[] = [];
+    for (const post of profile.posts) {
+      const urls: string[] = (
+        post.imageUrls && post.imageUrls.length > 0
+          ? post.imageUrls
+          : (post.imageUrl ? [post.imageUrl] : [])
+      ).filter(Boolean);
+      const uniqueUrls = Array.from(new Set(urls));
+      uniqueUrls.forEach((url, index) => {
+        result.push({ url, post, index });
+      });
+    }
+    return result;
+  }, [profile?.posts]);
+
+  const photoCount = allMediaPhotos.length;
 
   const allTabsConfig = useMemo(() => [
     { id: 'timeline' as const, label: 'Timeline' },
@@ -315,44 +343,89 @@ export default function PublicProfilePage() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [moreMenuOpen]);
-  async function handleOpenAvatarPost() {
-    if (!profile || !profile.avatarUrl) return;
-    const existing = profile.posts.find(p => p.imageUrl === profile.avatarUrl);
-    if (existing) {
-      setActivePhotoModalPost(existing);
-      return;
-    }
-    try {
-      const res = await fetch(`${API_URL}/users/${profile.id}/media-post?type=avatar`);
-      if (res.ok) {
-        const post = (await res.json()) as Post;
-        setActivePhotoModalPost(post);
-        setProfile(prev => prev ? {
-          ...prev,
-          posts: prev.posts.some(p => p.id === post.id) ? prev.posts : [post, ...prev.posts],
-        } : prev);
-      }
-    } catch { }
+  function handleOpenAvatarModal() {
+    if (!profile?.avatarUrl) return;
+    setViewingMediaModal({
+      src: profile.avatarUrl,
+      title: 'Profile picture',
+      type: 'avatar',
+    });
   }
 
-  async function handleOpenCoverPost() {
-    if (!profile || !profile.coverUrl) return;
-    const existing = profile.posts.find(p => p.imageUrl === profile.coverUrl);
-    if (existing) {
-      setActivePhotoModalPost(existing);
-      return;
-    }
+  function handleOpenCoverModal() {
+    if (!profile?.coverUrl) return;
+    setViewingMediaModal({
+      src: profile.coverUrl,
+      title: 'Cover photo',
+      type: 'cover',
+    });
+  }
+
+  async function handleRemoveMedia(type: 'avatar' | 'cover') {
+    if (!token || !profile) return;
+    const isOwner = relationship?.isSelf || (user?.username === profile.username);
+    if (!isOwner) return;
+    setIsRemovingMedia(true);
     try {
-      const res = await fetch(`${API_URL}/users/${profile.id}/media-post?type=cover`);
+      const res = await fetch(`${API_URL}/auth/me/${type}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
-        const post = (await res.json()) as Post;
-        setActivePhotoModalPost(post);
         setProfile(prev => prev ? {
           ...prev,
-          posts: prev.posts.some(p => p.id === post.id) ? prev.posts : [post, ...prev.posts],
+          ...(type === 'avatar' ? { avatarUrl: null } : { coverUrl: null }),
         } : prev);
+        await refresh();
+        setViewingMediaModal(null);
       }
-    } catch { }
+    } catch {
+      // ignore
+    } finally {
+      setIsRemovingMedia(false);
+    }
+  }
+
+  async function handleUploadDirect(kind: 'avatar' | 'cover', file: File) {
+    if (!token || !profile || !file) return;
+    const isOwner = relationship?.isSelf || (user?.username === profile.username);
+    if (!isOwner) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Images must be 5 MB or smaller.');
+      return;
+    }
+
+    if (kind === 'avatar') setIsUploadingAvatar(true);
+    else setIsUploadingCover(true);
+
+    const formData = new FormData();
+    formData.append(kind, file);
+
+    try {
+      const res = await fetch(`${API_URL}/auth/me/${kind}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const newUrl = kind === 'avatar' ? data.avatarUrl : data.coverUrl;
+        setProfile(prev => prev ? {
+          ...prev,
+          ...(kind === 'avatar' ? { avatarUrl: newUrl } : { coverUrl: newUrl }),
+        } : prev);
+        await refresh();
+        if (viewingMediaModal && viewingMediaModal.type === kind) {
+          setViewingMediaModal(prev => prev ? { ...prev, src: newUrl } : null);
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      if (kind === 'avatar') setIsUploadingAvatar(false);
+      else setIsUploadingCover(false);
+    }
   }
 
   const profileId = profile?.id;
@@ -558,7 +631,6 @@ export default function PublicProfilePage() {
   const joinedDate = new Date(profile.createdAt);
   const joinedMonth = joinedDate.toLocaleDateString('en-US', { month: 'long' });
   const joinedYear = joinedDate.getFullYear();
-  const mediaPosts = profile.posts.filter(p => Boolean(p.imageUrl));
   const relationshipPending = Boolean(token && !isSelf && !relationship);
 
   // Parse comma-separated interests and languages
@@ -580,21 +652,58 @@ export default function PublicProfilePage() {
         <div className="mx-auto max-w-[1320px] px-3 sm:px-5">
           <div className="rounded-xl bg-white dark:bg-[#0d0d0d] shadow-sm border border-slate-200/80 dark:border-white/[0.08]">
             {/* Cover Image */}
-            <div
-              onClick={handleOpenCoverPost}
-              className={`relative h-44 sm:h-60 md:h-72 w-full overflow-hidden rounded-t-xl bg-accent dark:bg-[#080808] ${cover ? 'cursor-pointer select-none' : ''
+            <div className="relative group">
+              <div
+                onClick={cover ? handleOpenCoverModal : undefined}
+                className={`relative h-44 sm:h-60 md:h-72 w-full overflow-hidden rounded-t-xl bg-accent dark:bg-[#080808] ${
+                  cover ? 'cursor-pointer select-none' : ''
                 }`}
-              title={cover ? 'Click to view cover post' : undefined}
-            >
-              {cover ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={cover}
-                  alt="Cover"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="h-full w-full bg-gradient-to-r from-accent to-[#1c2733] opacity-90" />
+                title={cover ? 'Click to view cover photo' : undefined}
+              >
+                {cover ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={cover}
+                    alt="Cover"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-r from-accent to-[#1c2733] opacity-90" />
+                )}
+
+                {/* Uploading indicator */}
+                {isUploadingCover && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center gap-2 text-white text-xs sm:text-sm font-medium z-10">
+                    <Loader2 size={18} className="animate-spin text-accent-fg" />
+                    <span>Uploading cover photo…</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Edit/Add Cover Button for profile owner */}
+              {isSelf && (
+                <div className="absolute right-3 bottom-3 z-20">
+                  <label
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-black/75 hover:bg-black/90 text-white border border-white/20 px-3 py-1.5 text-xs font-semibold shadow-lg backdrop-blur-md cursor-pointer transition-all hover:scale-[1.02] active:scale-95"
+                    title={cover ? 'Change cover photo' : 'Add cover photo'}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Camera size={14} />
+                    <span className="hidden sm:inline">{cover ? 'Edit cover photo' : 'Add cover photo'}</span>
+                    <input
+                      ref={coverFileInputRef}
+                      type="file"
+                      className="sr-only"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      disabled={isUploadingCover}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleUploadDirect('cover', file);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
               )}
             </div>
 
@@ -705,19 +814,48 @@ export default function PublicProfilePage() {
                     <div className="sm:hidden space-y-2.5">
                       {/* Row 1: Avatar on left, Action buttons on top right */}
                       <div className="flex items-end justify-between gap-3">
-                        <div
-                          onClick={handleOpenAvatarPost}
-                          className={`relative -mt-12 size-20 rounded-2xl ring-4 ring-white dark:ring-[#0d0d0d] overflow-hidden bg-white dark:bg-[#151515] shrink-0 shadow-md ${
-                            avatar ? 'cursor-pointer' : ''
-                          }`}
-                          title={avatar ? 'Click to view profile post' : undefined}
-                        >
-                          <UserAvatar
-                            src={avatar}
-                            name={profile.fullName || profile.username}
-                            shape="square"
-                            className="size-full text-2xl font-bold"
-                          />
+                        <div className="relative -mt-12 size-20 shrink-0">
+                          <div
+                            onClick={avatar ? handleOpenAvatarModal : (isSelf ? () => avatarFileInputRef.current?.click() : undefined)}
+                            className={`relative size-full rounded-2xl ring-4 ring-white dark:ring-[#0d0d0d] overflow-hidden bg-white dark:bg-[#151515] shadow-md ${
+                              avatar ? 'cursor-pointer' : (isSelf ? 'cursor-pointer' : '')
+                            }`}
+                            title={avatar ? 'Click to view profile picture' : (isSelf ? 'Click to add profile picture' : undefined)}
+                          >
+                            <UserAvatar
+                              src={avatar}
+                              name={profile.fullName || profile.username}
+                              shape="square"
+                              className="size-full text-2xl font-bold"
+                            />
+                            {isUploadingAvatar && (
+                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
+                                <Loader2 size={16} className="animate-spin text-white" />
+                              </div>
+                            )}
+                          </div>
+
+                          {isSelf && (
+                            <label
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute -bottom-1 -right-1 z-20 grid size-7 place-items-center rounded-full bg-slate-900/90 hover:bg-black text-white shadow-md border-2 border-white dark:border-[#0d0d0d] transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                              title="Change profile picture"
+                            >
+                              <Camera size={13} />
+                              <input
+                                ref={avatarFileInputRef}
+                                type="file"
+                                className="sr-only"
+                                accept="image/jpeg,image/png,image/webp,image/gif"
+                                disabled={isUploadingAvatar}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) void handleUploadDirect('avatar', file);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                          )}
                         </div>
 
                         {/* Action buttons on top right */}
@@ -762,19 +900,47 @@ export default function PublicProfilePage() {
                     {/* Desktop & Tablet Layout (sm and up) */}
                     <div className="hidden sm:flex items-start justify-between gap-4 lg:gap-6">
                       <div className="flex items-start gap-3.5 sm:gap-4 lg:gap-5 min-w-0 flex-1">
-                        <div
-                          onClick={handleOpenAvatarPost}
-                          className={`relative -mt-14 sm:-mt-16 lg:-mt-20 size-24 sm:size-26 lg:size-32 rounded-2xl sm:rounded-[26px] ring-4 ring-white dark:ring-[#0d0d0d] overflow-hidden bg-white dark:bg-[#151515] shrink-0 shadow-md ${
-                            avatar ? 'cursor-pointer' : ''
-                          }`}
-                          title={avatar ? 'Click to view profile post' : undefined}
-                        >
-                          <UserAvatar
-                            src={avatar}
-                            name={profile.fullName || profile.username}
-                            shape="square"
-                            className="size-full text-2xl sm:text-2xl lg:text-3xl font-bold"
-                          />
+                        <div className="relative -mt-14 sm:-mt-16 lg:-mt-20 size-24 sm:size-26 lg:size-32 shrink-0">
+                          <div
+                            onClick={avatar ? handleOpenAvatarModal : (isSelf ? () => avatarFileInputRef.current?.click() : undefined)}
+                            className={`relative size-full rounded-2xl sm:rounded-[26px] ring-4 ring-white dark:ring-[#0d0d0d] overflow-hidden bg-white dark:bg-[#151515] shadow-md ${
+                              avatar ? 'cursor-pointer' : (isSelf ? 'cursor-pointer' : '')
+                            }`}
+                            title={avatar ? 'Click to view profile picture' : (isSelf ? 'Click to add profile picture' : undefined)}
+                          >
+                            <UserAvatar
+                              src={avatar}
+                              name={profile.fullName || profile.username}
+                              shape="square"
+                              className="size-full text-2xl sm:text-2xl lg:text-3xl font-bold"
+                            />
+                            {isUploadingAvatar && (
+                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
+                                <Loader2 size={22} className="animate-spin text-white" />
+                              </div>
+                            )}
+                          </div>
+
+                          {isSelf && (
+                            <label
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute -bottom-1.5 -right-1.5 z-20 grid size-8 sm:size-9 place-items-center rounded-full bg-slate-900/90 hover:bg-black text-white shadow-lg border-2 border-white dark:border-[#0d0d0d] transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                              title="Change profile picture"
+                            >
+                              <Camera size={15} />
+                              <input
+                                type="file"
+                                className="sr-only"
+                                accept="image/jpeg,image/png,image/webp,image/gif"
+                                disabled={isUploadingAvatar}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) void handleUploadDirect('avatar', file);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                          )}
                         </div>
 
                         <div className="pt-0.5 sm:pt-1 min-w-0 flex-1">
@@ -974,7 +1140,7 @@ export default function PublicProfilePage() {
 
       {/* 3-Column Content Layout */}
       <div className={`mx-auto grid max-w-[1320px] grid-cols-1 gap-5 px-3 pt-5 sm:px-5 lg:grid-cols-[280px_minmax(0,1fr)] ${
-        mediaPosts.length > 0 || whoToFollow.length > 0
+        allMediaPhotos.length > 0 || whoToFollow.length > 0
           ? 'xl:grid-cols-[300px_minmax(0,1fr)_280px]'
           : 'xl:grid-cols-[300px_minmax(0,1fr)]'
       }`}>
@@ -1015,17 +1181,17 @@ export default function PublicProfilePage() {
               {/* Followed by (Positioned above location, matching text-sm font size) */}
               <li className="flex items-center gap-2.5">
                 <Users className="size-4 text-slate-400 dark:text-slate-500 shrink-0" />
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('followers')}
-                  className="text-left text-sm text-slate-600 dark:text-slate-300 hover:text-accent-fg transition-colors cursor-pointer group"
-                >
+                <span className="text-left text-sm text-slate-600 dark:text-slate-300">
                   <span>Followed by </span>
-                  <strong className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-accent-fg transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('followers')}
+                    className="font-bold text-slate-800 dark:text-slate-100 hover:text-accent-fg hover:underline transition-colors cursor-pointer"
+                  >
                     {(profile._count?.followers ?? 0).toLocaleString()}{' '}
                     {profile._count?.followers === 1 ? 'person' : 'people'}
-                  </strong>
-                </button>
+                  </button>
+                </span>
               </li>
 
               {profile.location && (
@@ -1192,18 +1358,18 @@ export default function PublicProfilePage() {
             <div className="ultranet-card p-6">
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Photos by {profile.fullName || profile.username}</h2>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Visual moments and media shared in posts.</p>
-              {mediaPosts.length > 0 ? (
+              {allMediaPhotos.length > 0 ? (
                 <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {mediaPosts.map((post) => (
+                  {allMediaPhotos.map((item, idx) => (
                     <button
                       type="button"
-                      key={post.id}
-                      onClick={() => setActivePhotoModalPost(post)}
+                      key={`${item.post.id}-${idx}`}
+                      onClick={() => setActivePhotoModalPost(item.post)}
                       className="group relative aspect-square overflow-hidden rounded-xl bg-slate-100 dark:bg-[#151515] border border-slate-200/60 dark:border-white/[0.08] cursor-pointer text-left transition-all hover:opacity-95"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={mediaUrl(post.imageUrl)!}
+                        src={mediaUrl(item.url)!}
                         alt="Shared media"
                         className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
                       />
@@ -1301,11 +1467,11 @@ export default function PublicProfilePage() {
                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3">
                   <div className="flex items-center gap-2">
                     <MapPin size={16} className="text-accent-fg" />
-                    <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Places & Map Locations</h2>
+                    <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Places & Locations</h2>
                   </div>
                   {isSelf && (
                     <Link href="/settings/profile" className="text-xs font-semibold text-accent-fg hover:underline">
-                      Edit places & maps →
+                      Edit places →
                     </Link>
                   )}
                 </div>
@@ -1401,10 +1567,10 @@ export default function PublicProfilePage() {
                   ) : (
                     <div className="rounded-xl border border-dashed border-slate-200 dark:border-white/10 p-6 text-center text-sm text-slate-400 dark:text-slate-500">
                       <MapPin size={24} className="mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                      <p>No map locations set yet.</p>
+                      <p>No locations added yet.</p>
                       {isSelf && (
                         <Link href="/settings/profile" className="mt-2 inline-block font-semibold text-accent-fg hover:underline">
-                          Add location on map →
+                          Add location →
                         </Link>
                       )}
                     </div>
@@ -1687,27 +1853,27 @@ export default function PublicProfilePage() {
         </div>
 
         {/* Right Column Widgets */}
-        {(mediaPosts.length > 0 || whoToFollow.length > 0) && (
+        {(allMediaPhotos.length > 0 || whoToFollow.length > 0) && (
           <div className={`space-y-4 order-2 lg:order-3 xl:order-3 ${activeTab === 'timeline' ? 'block' : 'hidden lg:block'}`}>
             {/* Recent Media Widget */}
-            {mediaPosts.length > 0 && (
+            {allMediaPhotos.length > 0 && (
               <div className="ultranet-card p-4">
                 <div className="flex items-center justify-between pb-3">
                   <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">Recent Media</h2>
                   <button type="button" onClick={() => setActiveTab('photos')} className="text-xs font-medium text-accent-fg hover:underline cursor-pointer">View all</button>
                 </div>
                 <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-3 gap-1.5">
-                  {mediaPosts.slice(0, 6).map(post => (
+                  {allMediaPhotos.slice(0, 6).map((item, idx) => (
                     <button
                       type="button"
-                      key={post.id}
-                      onClick={() => setActivePhotoModalPost(post)}
+                      key={`${item.post.id}-${idx}`}
+                      onClick={() => setActivePhotoModalPost(item.post)}
                       className="relative aspect-square overflow-hidden rounded bg-slate-100 dark:bg-[#151515] border dark:border-white/[0.08] cursor-pointer hover:opacity-90 transition-opacity"
                       title="Click to view full post"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={mediaUrl(post.imageUrl)!}
+                        src={mediaUrl(item.url)!}
                         alt=""
                         className="size-full object-cover"
                       />
@@ -1791,6 +1957,25 @@ export default function PublicProfilePage() {
           </div>
         )}
       </div>
+      {/* Fullscreen Media Modal for Profile Picture & Cover Photo */}
+      {viewingMediaModal && (
+        <FullscreenMediaModal
+          src={viewingMediaModal.src}
+          title={viewingMediaModal.title}
+          author={{
+            username: profile.username,
+            fullName: profile.fullName,
+            avatarUrl: profile.avatarUrl,
+            isVerified: profile.isVerified,
+          }}
+          onClose={() => setViewingMediaModal(null)}
+          onRemove={isSelf ? () => void handleRemoveMedia(viewingMediaModal.type) : undefined}
+          isRemoving={isRemovingMedia}
+          onChangePhoto={isSelf ? (file) => void handleUploadDirect(viewingMediaModal.type, file) : undefined}
+          isUploading={viewingMediaModal.type === 'avatar' ? isUploadingAvatar : isUploadingCover}
+        />
+      )}
+
       {/* Fullscreen Post Modal (Except Top Bar with Cross Button) for Photos Tab */}
       {activePhotoModalPost && (
         <FullscreenPostModal

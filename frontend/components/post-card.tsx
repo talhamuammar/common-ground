@@ -16,17 +16,6 @@ import { useAuthModal } from './auth-modal';
 import { PostPhotoCarousel } from './post-photo-carousel';
 import { FormattedText } from './formatted-text';
 import { CommentItem } from './comment-item';
-export { PostPhotoCarousel, PostPhotoCarousel as PostPhotoGrid } from './post-photo-carousel';
-
-export function FormattedPostContent({
-  content,
-  onTagClick,
-}: {
-  content: string;
-  onTagClick?: (tag: string) => void;
-}) {
-  return <FormattedText content={content} onTagClick={onTagClick} />;
-}
 
 export function PostCard({
   post,
@@ -343,10 +332,9 @@ export function PostCard({
             aria-label={`View ${post.author.username}'s profile`}
           >
             <UserAvatar
-              src={mediaUrl(post.author.avatarUrl)}
+              src={post.author.avatarUrl}
               name={post.author.fullName || post.author.username}
               className="size-10 rounded-full border border-slate-100 bg-slate-100 text-xs font-semibold text-slate-700 dark:border-white/[0.1] dark:bg-[#151515] dark:text-slate-200"
-              sizes="40px"
             />
           </Link>
 
@@ -387,7 +375,7 @@ export function PostCard({
       {/* Post Text Content */}
       {post.content && post.content.trim().length > 0 && (
         <div className="my-3.5 text-[15px] sm:text-[16px] leading-relaxed text-slate-800 dark:text-slate-100 [overflow-wrap:anywhere]">
-          <FormattedPostContent content={post.content} onTagClick={onTagClick} />
+          <FormattedText content={post.content} onTagClick={onTagClick} />
         </div>
       )}
 
@@ -481,10 +469,9 @@ export function PostCard({
 
               <form onSubmit={handleAddComment} className="flex items-center gap-2.5">
                 <UserAvatar
-                  src={mediaUrl(user?.avatarUrl)}
+                  src={user?.avatarUrl}
                   name={user?.fullName || user?.username || 'U'}
                   className="size-8 rounded-full text-xs shrink-0"
-                  sizes="32px"
                 />
                 <div className="flex flex-1 items-center gap-2 rounded-xl border border-transparent bg-slate-100/80 px-3 py-1.5 focus-within:bg-white focus-within:ring-1 focus-within:ring-accent/30 dark:border-white/[0.08] dark:bg-[#151515] dark:focus-within:bg-[#1c1c1c] dark:focus-within:ring-accent/30 transition-all">
                   <input

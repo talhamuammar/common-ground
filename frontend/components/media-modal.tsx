@@ -2,10 +2,11 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { X, Image as ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Image as ImageIcon, ChevronLeft, ChevronRight, Trash2, Camera } from 'lucide-react';
 import { mediaUrl } from '../lib/api';
 import { UserAvatar } from './user-avatar';
 import { VerifiedBadge } from './verified-badge';
+import { ConfirmationModal } from './confirmation-modal';
 
 export interface FullscreenMediaModalProps {
   src?: string;
@@ -20,6 +21,10 @@ export interface FullscreenMediaModalProps {
     isVerified?: boolean;
   };
   onClose: () => void;
+  onRemove?: () => void;
+  isRemoving?: boolean;
+  onChangePhoto?: (file: File) => void;
+  isUploading?: boolean;
 }
 
 export function FullscreenMediaModal({
@@ -30,7 +35,12 @@ export function FullscreenMediaModal({
   subtitle,
   author,
   onClose,
+  onRemove,
+  isRemoving = false,
+  onChangePhoto,
+  isUploading = false,
 }: FullscreenMediaModalProps) {
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   // Normalize photo list
   const photoList = images.length > 0 ? images : src ? [src] : [];
   const [currentIndex, setCurrentIndex] = useState(() => {
@@ -74,16 +84,6 @@ export function FullscreenMediaModal({
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xs p-2 sm:p-4 md:p-6 animate-in fade-in duration-200"
     >
-      {/* Top Bar Close Button */}
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute right-4 top-4 z-50 grid size-10 place-items-center rounded-full bg-black/80 text-white shadow-2xl hover:bg-black hover:scale-105 border border-white/25 transition-all cursor-pointer"
-        aria-label="Close photo view"
-      >
-        <X size={20} strokeWidth={2.2} />
-      </button>
-
       {/* Main Image Container Card */}
       <div
         onClick={(e) => e.stopPropagation()}
@@ -138,6 +138,52 @@ export function FullscreenMediaModal({
             </div>
           </div>
 
+          <div className="flex items-center gap-2 shrink-0">
+            {onChangePhoto && (
+              <label
+                className={`inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 hover:bg-white/15 text-white px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                  isUploading ? 'pointer-events-none opacity-60' : ''
+                }`}
+                title="Change photo"
+              >
+                <Camera size={13} className="shrink-0" />
+                <span>{isUploading ? 'Updating…' : 'Change photo'}</span>
+                <input
+                  type="file"
+                  className="sr-only"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  disabled={isUploading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) onChangePhoto(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            )}
+
+            {onRemove && (
+              <button
+                type="button"
+                onClick={() => setShowConfirmDelete(true)}
+                disabled={isRemoving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-950/30 hover:bg-rose-900/40 text-rose-300 px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                title="Remove photo"
+              >
+                <Trash2 size={13} className="shrink-0" />
+                <span>{isRemoving ? 'Removing…' : 'Remove photo'}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid size-8 place-items-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ml-1"
+              aria-label="Close photo view"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </header>
 
         {/* Center Canvas: Full High-Resolution Image + Navigation Controls */}
@@ -188,6 +234,23 @@ export function FullscreenMediaModal({
           )}
         </div>
       </div>
+
+      {/* Sleek Custom Confirmation Modal for Photo Removal */}
+      <ConfirmationModal
+        isOpen={showConfirmDelete}
+        title={title === 'Profile picture' ? 'Remove profile picture?' : 'Remove cover photo?'}
+        message={`Are you sure you want to remove your ${title.toLowerCase()}? This action cannot be undone.`}
+        confirmText="Remove"
+        isDestructive={true}
+        isLoading={isRemoving}
+        onConfirm={() => {
+          setShowConfirmDelete(false);
+          if (onRemove) {
+            onRemove();
+          }
+        }}
+        onCancel={() => setShowConfirmDelete(false)}
+      />
     </div>
   );
 }

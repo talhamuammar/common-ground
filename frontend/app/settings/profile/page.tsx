@@ -5,12 +5,13 @@ import { ChangeEvent, FormEvent, useState } from 'react';
 import { useAuth } from '../../../components/auth-provider';
 import { UserAvatar } from '../../../components/user-avatar';
 import { LocationMapPicker } from '../../../components/location-map-picker';
+import { ConfirmationModal } from '../../../components/confirmation-modal';
 import { API_URL, getErrorMessage, mediaUrl } from '../../../lib/api';
 import {
   WorkItem, EducationItem, parseWorkItems, parseEducationItems,
   serializeWorkItems, serializeEducationItems, formatWorkText, formatEducationText
 } from '../../../lib/work-study';
-import { Briefcase, GraduationCap, Globe, MessageSquare, MapPin, Home, User, AtSign, Plus, Trash2, Save } from 'lucide-react';
+import { ArrowLeft, Briefcase, GraduationCap, Globe, MessageSquare, MapPin, Home, User, AtSign, Plus, Trash2, Save } from 'lucide-react';
 
 type UploadKind = 'avatar' | 'cover';
 
@@ -18,6 +19,7 @@ export default function EditProfilePage() {
   const { user, token, ready, refresh } = useAuth();
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<UploadKind | null>(null);
+  const [confirmDeleteKind, setConfirmDeleteKind] = useState<UploadKind | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -138,6 +140,28 @@ export default function EditProfilePage() {
     }
   }
 
+  async function executeRemovePhoto(kind: UploadKind) {
+    if (!token) return;
+    setUploading(kind);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/auth/me/${kind}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload: unknown = await response.json();
+      if (!response.ok) throw new Error(getErrorMessage(payload, `Could not remove your ${kind === 'avatar' ? 'profile picture' : 'cover photo'}`));
+      await refresh();
+      setMessage(`${kind === 'avatar' ? 'Profile picture' : 'Cover photo'} removed.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not remove the image');
+    } finally {
+      setUploading(null);
+      setConfirmDeleteKind(null);
+    }
+  }
+
   if (!ready) return <div className="p-8 text-sm text-muted dark:text-slate-400">Loading settings…</div>;
   if (!token || !user) return (
     <div className="p-8">
@@ -153,11 +177,15 @@ export default function EditProfilePage() {
     <div className="min-h-[calc(100dvh-64px)] bg-[#f7f8f7] dark:bg-[#000000] p-4 sm:p-6 lg:p-8">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <Link href={`/profile/${encodeURIComponent(user.username)}`} className="text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-accent-fg">
-            ← Back to profile
+          <Link
+            href={`/profile/${encodeURIComponent(user.username)}`}
+            className="group inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-accent-fg transition-colors"
+          >
+            <ArrowLeft size={14} className="transition-transform group-hover:-translate-x-0.5" />
+            <span>Back to profile</span>
           </Link>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Edit profile</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage your comprehensive personal, professional, and map location information.</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage your personal details, bio, and profile information.</p>
         </div>
       </div>
 
@@ -184,7 +212,7 @@ export default function EditProfilePage() {
 
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Pronouns
-                <input className={inputClass} name="pronouns" defaultValue={user.pronouns || ''} maxLength={60} placeholder="e.g. he/him, she/her, they/them" />
+                <input className={inputClass} name="pronouns" defaultValue={user.pronouns || ''} maxLength={60} placeholder="e.g. he/him, she/her" />
               </label>
 
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -410,7 +438,7 @@ export default function EditProfilePage() {
             <div className="mb-5 flex items-center justify-between border-b border-zinc-100 dark:border-white/[0.08] pb-3">
               <div className="flex items-center gap-2">
                 <MapPin size={16} className="text-accent-fg" />
-                <h2 className="font-semibold text-slate-900 dark:text-slate-100">Places & Map Location</h2>
+                <h2 className="font-semibold text-slate-900 dark:text-slate-100">Places & Location</h2>
               </div>
               <span className="text-[11px] font-medium text-accent-fg">Interactive Map</span>
             </div>
@@ -579,23 +607,64 @@ export default function EditProfilePage() {
           <section className="rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0d0d0d] p-5 shadow-xs">
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">Profile picture</h2>
             <p className="mb-4 mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Use a square image for the best result.</p>
-            <label className={`inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-full border border-zinc-200 dark:border-white/10 px-4 text-xs font-semibold text-accent-fg hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
-              {uploading === 'avatar' ? 'Uploading…' : 'Change profile picture'}
-              <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => void upload('avatar', event)} />
-            </label>
+            <div className="flex flex-col sm:flex-row items-center gap-2.5">
+              <label className={`inline-flex min-h-10 flex-1 w-full cursor-pointer items-center justify-center rounded-full border border-zinc-200 dark:border-white/10 px-4 text-xs font-semibold text-accent-fg hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
+                {uploading === 'avatar' ? 'Uploading…' : 'Change profile picture'}
+                <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => void upload('avatar', event)} />
+              </label>
+              {user.avatarUrl && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteKind('avatar')}
+                  disabled={Boolean(uploading)}
+                  className="inline-flex min-h-10 w-full sm:w-auto items-center justify-center rounded-full border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20 px-4 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-100/70 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <Trash2 size={13} className="mr-1.5" />
+                  Remove
+                </button>
+              )}
+            </div>
           </section>
 
           {/* Cover Photo Upload */}
           <section className="rounded-2xl border border-zinc-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0d0d0d] p-5 shadow-xs">
             <h2 className="font-semibold text-slate-900 dark:text-slate-100">Cover photo</h2>
             <p className="mb-4 mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">A wide image helps your profile feel personal.</p>
-            <label className={`inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-full border border-zinc-200 dark:border-white/10 px-4 text-xs font-semibold text-accent-fg hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
-              {uploading === 'cover' ? 'Uploading…' : 'Change cover photo'}
-              <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => void upload('cover', event)} />
-            </label>
+            <div className="flex flex-col sm:flex-row items-center gap-2.5">
+              <label className={`inline-flex min-h-10 flex-1 w-full cursor-pointer items-center justify-center rounded-full border border-zinc-200 dark:border-white/10 px-4 text-xs font-semibold text-accent-fg hover:bg-zinc-50 dark:hover:bg-white/5 transition-colors ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
+                {uploading === 'cover' ? 'Uploading…' : 'Change cover photo'}
+                <input type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => void upload('cover', event)} />
+              </label>
+              {user.coverUrl && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteKind('cover')}
+                  disabled={Boolean(uploading)}
+                  className="inline-flex min-h-10 w-full sm:w-auto items-center justify-center rounded-full border border-rose-200 dark:border-rose-900/40 bg-rose-50/50 dark:bg-rose-950/20 px-4 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-100/70 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <Trash2 size={13} className="mr-1.5" />
+                  Remove
+                </button>
+              )}
+            </div>
           </section>
         </aside>
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmDeleteKind !== null}
+        title={confirmDeleteKind === 'avatar' ? 'Remove profile picture?' : 'Remove cover photo?'}
+        message={`Are you sure you want to remove your ${confirmDeleteKind === 'avatar' ? 'profile picture' : 'cover photo'}? This action cannot be undone.`}
+        confirmText="Remove"
+        isDestructive={true}
+        isLoading={Boolean(uploading)}
+        onConfirm={() => {
+          if (confirmDeleteKind) {
+            void executeRemovePhoto(confirmDeleteKind);
+          }
+        }}
+        onCancel={() => setConfirmDeleteKind(null)}
+      />
     </div>
   );
 }

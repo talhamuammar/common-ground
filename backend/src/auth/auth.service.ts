@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '../../generated/profile-client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { CloudinaryService } from '../uploads/cloudinary.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -14,10 +15,13 @@ import { generateUniqueUserId } from '../common/id-generator';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly jwt: JwtService,
+    private readonly cloudinary: CloudinaryService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -81,35 +85,67 @@ export class AuthService {
   }
 
   async updateAvatar(id: number, avatarUrl: string) {
-    const user = await this.prisma.user.update({
+    const existing = await this.prisma.user.findUnique({ where: { id }, select: { avatarUrl: true } });
+    const result = await this.prisma.user.update({
       where: { id },
       data: { avatarUrl },
       select: { id: true, avatarUrl: true },
     });
-    await this.prisma.post.create({
-      data: {
-        authorId: id,
-        content: 'Updated profile picture',
-        imageUrl: avatarUrl,
-      },
+    if (existing?.avatarUrl && existing.avatarUrl !== avatarUrl) {
+      this.cloudinary.deleteImage(existing.avatarUrl).catch((err) => {
+        this.logger.warn(`Failed to delete previous avatar from Cloudinary: ${err}`);
+      });
+    }
+    return result;
+  }
+
+  async removeAvatar(id: number) {
+    const existing = await this.prisma.user.findUnique({ where: { id }, select: { avatarUrl: true } });
+    const result = await this.prisma.user.update({
+      where: { id },
+      data: { avatarUrl: null },
+      select: { id: true, avatarUrl: true },
     });
-    return user;
+    if (existing?.avatarUrl) {
+      try {
+        await this.cloudinary.deleteImage(existing.avatarUrl);
+      } catch (err) {
+        this.logger.warn(`Failed to delete avatar from Cloudinary: ${err}`);
+      }
+    }
+    return result;
   }
 
   async updateCover(id: number, coverUrl: string) {
-    const user = await this.prisma.user.update({
+    const existing = await this.prisma.user.findUnique({ where: { id }, select: { coverUrl: true } });
+    const result = await this.prisma.user.update({
       where: { id },
       data: { coverUrl },
       select: { id: true, coverUrl: true },
     });
-    await this.prisma.post.create({
-      data: {
-        authorId: id,
-        content: 'Updated cover photo',
-        imageUrl: coverUrl,
-      },
+    if (existing?.coverUrl && existing.coverUrl !== coverUrl) {
+      this.cloudinary.deleteImage(existing.coverUrl).catch((err) => {
+        this.logger.warn(`Failed to delete previous cover from Cloudinary: ${err}`);
+      });
+    }
+    return result;
+  }
+
+  async removeCover(id: number) {
+    const existing = await this.prisma.user.findUnique({ where: { id }, select: { coverUrl: true } });
+    const result = await this.prisma.user.update({
+      where: { id },
+      data: { coverUrl: null },
+      select: { id: true, coverUrl: true },
     });
-    return user;
+    if (existing?.coverUrl) {
+      try {
+        await this.cloudinary.deleteImage(existing.coverUrl);
+      } catch (err) {
+        this.logger.warn(`Failed to delete cover from Cloudinary: ${err}`);
+      }
+    }
+    return result;
   }
 
   async updateProfile(id: number, dto: UpdateProfileDto) {

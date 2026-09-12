@@ -289,21 +289,14 @@ export class UsersService {
     const targetUrl = type === 'avatar' ? user.avatarUrl : user.coverUrl;
     if (!targetUrl) throw new NotFoundException(`User has no ${type}`);
 
-    let post = await this.prisma.post.findFirst({
+    const post = await this.prisma.post.findFirst({
       where: { authorId: userId, imageUrl: targetUrl },
       orderBy: { createdAt: 'desc' },
       include: postInclude,
     });
 
     if (!post) {
-      post = await this.prisma.post.create({
-        data: {
-          authorId: userId,
-          content: type === 'avatar' ? 'Updated profile picture' : 'Updated cover photo',
-          imageUrl: targetUrl,
-        },
-        include: postInclude,
-      });
+      throw new NotFoundException(`No post found for ${type}`);
     }
 
     return post;

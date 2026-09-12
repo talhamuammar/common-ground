@@ -63,6 +63,11 @@ export class PostsController {
     return this.posts.getTrendingTags();
   }
 
+  @Get('suggested-tags')
+  getSuggestedTags() {
+    return this.posts.getSuggestedTags();
+  }
+
   @Get('bookmarks')
   @UseGuards(JwtAuthGuard)
   getBookmarks(@Req() request: AuthenticatedRequest) {
