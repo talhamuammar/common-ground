@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <!-- Border Gradient -->
+    <linearGradient id="cg-dark-border" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#333333" />
+      <stop offset="50%" stop-color="#143422" />
+      <stop offset="100%" stop-color="#222222" />
+    </linearGradient>
+
+    <!-- Main Sprout Gradient (Vibrant Emerald to Mint) -->
+    <linearGradient id="cg-sprout-grad" x1="18" y1="36" x2="34" y2="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="45%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+
+    <!-- Right Leaf Highlight Gradient -->
+    <linearGradient id="cg-leaf-highlight" x1="32" y1="30" x2="46" y2="16" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#6ee7b7" />
+    </linearGradient>
+
+    <!-- Ground Horizon Line Gradient -->
+    <linearGradient id="cg-horizon" x1="12" y1="47" x2="52" y2="47" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.2" />
+    </linearGradient>
+  </defs>
+
+  <!-- Deep Matte Jet-Black Squircle Background -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#000000" stroke="url(#cg-dark-border)" stroke-width="2" />
+
+  <!-- The "Common Ground" Horizon Meeting Arcs -->
+  <path d="M14 47 C 22 41.5, 42 41.5, 50 47" stroke="url(#cg-horizon)" stroke-width="3.5" stroke-linecap="round" />
+  <path d="M21 51 C 26 48.5, 38 48.5, 43 51" stroke="#10b981" stroke-opacity="0.3" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Upward Central Stem -->
+  <path d="M32 45 V 29" stroke="#34d399" stroke-width="3.5" stroke-linecap="round" />
+
+  <!-- Left Leaf (Growing from Common Ground) -->
+  <path d="M32 31 C 20 30, 17 21, 18 16 C 24 16, 31 21, 32 31 Z" fill="url(#cg-sprout-grad)" />
+
+  <!-- Right Leaf (Shared Stories & Community) -->
+  <path d="M32 25 C 43 25, 46 18, 46 13 C 40 13, 33 18, 32 25 Z" fill="url(#cg-leaf-highlight)" />
+
+  <!-- Pure White Radiant Seed Core at Intersection -->
+  <circle cx="32" cy="30.5" r="2.2" fill="#ffffff" />
+</svg>

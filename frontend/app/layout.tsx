@@ -13,7 +13,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Common Ground',
+  title: {
+    default: 'Common Ground',
+    template: '%s · Common Ground',
+  },
   description: 'Posts and conversations from the Common Ground community.',
 };
 
