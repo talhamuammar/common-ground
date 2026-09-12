@@ -6,14 +6,13 @@ import { useRouter } from 'next/navigation';
 import {
   Bell,
   CheckCheck,
-  Heart,
-  MessageSquare,
-  UserPlus,
   ArrowRight,
 } from 'lucide-react';
 import { useAuth } from './auth-provider';
 import { API_URL } from '../lib/api';
 import { UserAvatar } from './user-avatar';
+import { NotificationActionBadge } from './notification-badge';
+import { broadcastNotificationSync, SYNC_NOTIFICATION_EVENT, NotificationSyncEvent } from '../lib/realtime';
 
 export interface NotificationItem {
   id: number;
@@ -71,34 +70,43 @@ export function NotificationsDropdown() {
 
   // Fetch unread count
   const fetchUnreadCount = useCallback(async () => {
-    if (!token) return;
+    if (!token || isOpen) return;
     try {
       const res = await fetch(`${API_URL}/notifications/unread-count`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setUnreadCount(typeof data.unreadCount === 'number' ? data.unreadCount : 0);
+        if (!isOpen) {
+          setUnreadCount(typeof data.unreadCount === 'number' ? data.unreadCount : 0);
+        }
       }
     } catch {
       // Ignore background network error
     }
-  }, [token]);
+  }, [token, isOpen]);
 
   // Fetch notifications list
   const fetchNotifications = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     try {
+      // Ensure backend marks all as read
+      await fetch(`${API_URL}/notifications/read-all`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+
       const res = await fetch(`${API_URL}/notifications?limit=25`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setNotifications(data.items || []);
-        if (typeof data.unreadCount === 'number') {
-          setUnreadCount(data.unreadCount);
-        }
+        // Since dropdown is open, all notifications are shown as read
+        const items = (data.items || []).map((n: NotificationItem) => ({ ...n, read: true }));
+        setNotifications(items);
+        setUnreadCount(0);
+        broadcastNotificationSync(0, { readAll: true });
       }
     } catch {
       // Ignore fetch error
@@ -117,7 +125,22 @@ export function NotificationsDropdown() {
 
     fetchUnreadCount();
 
-    const interval = setInterval(fetchUnreadCount, 15000);
+    const handleSync = (e: Event) => {
+      const customEvent = e as CustomEvent<NotificationSyncEvent>;
+      if (customEvent.detail && typeof customEvent.detail.unreadCount === 'number') {
+        setUnreadCount(customEvent.detail.unreadCount);
+        if (customEvent.detail.readAll) {
+          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        } else if (customEvent.detail.notificationId) {
+          setNotifications((prev) =>
+            prev.map((n) => (n.id === customEvent.detail.notificationId ? { ...n, read: true } : n)),
+          );
+        }
+      }
+    };
+
+    window.addEventListener(SYNC_NOTIFICATION_EVENT, handleSync);
+    const interval = setInterval(fetchUnreadCount, 12000);
 
     function handleFocus() {
       fetchUnreadCount();
@@ -127,6 +150,7 @@ export function NotificationsDropdown() {
     return () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
+      window.removeEventListener(SYNC_NOTIFICATION_EVENT, handleSync);
     };
   }, [token, fetchUnreadCount]);
 
@@ -136,6 +160,18 @@ export function NotificationsDropdown() {
       fetchNotifications();
     }
   }, [isOpen, fetchNotifications]);
+
+  function handleToggleDropdown() {
+    const nextOpen = !isOpen;
+    setIsOpen(nextOpen);
+
+    if (nextOpen && token) {
+      // Opening top dropdown immediately marks all read across entire website
+      setUnreadCount(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      broadcastNotificationSync(0, { readAll: true });
+    }
+  }
 
   // Close dropdown on outside click or escape
   useEffect(() => {
@@ -161,32 +197,14 @@ export function NotificationsDropdown() {
     };
   }, [isOpen]);
 
-  async function handleMarkAsRead(id: number, e?: React.MouseEvent) {
-    if (e) e.stopPropagation();
-    if (!token) return;
-
-    // Optimistic update
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
-    );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
-
-    try {
-      await fetch(`${API_URL}/notifications/${id}/read`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {
-      // Ignore error
-    }
-  }
 
   async function handleMarkAllAsRead() {
     if (!token || unreadCount === 0) return;
 
-    // Optimistic update
+    // Optimistic update across website
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnreadCount(0);
+    broadcastNotificationSync(0, { readAll: true });
 
     try {
       await fetch(`${API_URL}/notifications/read-all`, {
@@ -199,9 +217,20 @@ export function NotificationsDropdown() {
   }
 
   function handleNotificationClick(item: NotificationItem) {
-    if (!item.read) {
-      handleMarkAsRead(item.id);
+    // Opening any notification makes unread count zero across website
+    setUnreadCount(0);
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)),
+    );
+    broadcastNotificationSync(0, { notificationId: item.id });
+
+    if (!item.read && token) {
+      fetch(`${API_URL}/notifications/${item.id}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
     }
+
     setIsOpen(false);
 
     if (item.type === 'FOLLOW') {
@@ -210,14 +239,10 @@ export function NotificationsDropdown() {
     }
 
     if (item.postId) {
-      // If we are already on home page, scroll and highlight
-      if (window.location.pathname === '/') {
-        window.location.hash = `#post-${item.postId}`;
-        window.dispatchEvent(
-          new CustomEvent('cg:focus-post', { detail: item.postId }),
-        );
+      if (item.commentId) {
+        router.push(`/post/${item.postId}#comment-${item.commentId}`);
       } else {
-        router.push(`/#post-${item.postId}`);
+        router.push(`/post/${item.postId}`);
       }
     }
   }
@@ -232,7 +257,7 @@ export function NotificationsDropdown() {
       {/* Bell Trigger Button */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggleDropdown}
         className={`relative p-2 rounded-xl transition-all cursor-pointer ${
           isOpen
             ? 'bg-slate-100 dark:bg-white/[0.1] text-slate-900 dark:text-white'
@@ -359,47 +384,51 @@ export function NotificationsDropdown() {
                       <UserAvatar
                         src={item.actor.avatarUrl}
                         name={item.actor.fullName || item.actor.username}
-                        className="size-9 text-xs"
+                        className="size-10 text-xs font-semibold"
                       />
-                      <span
-                        className={`absolute -bottom-1 -right-1 grid size-4.5 place-items-center rounded-full border-2 border-white dark:border-[#0f0f0f] text-white shadow-xs ${
-                          isLike
-                            ? 'bg-rose-500'
-                            : isComment || isReply
-                            ? 'bg-sky-500'
-                            : 'bg-emerald-500'
-                        }`}
-                      >
-                        {isLike ? (
-                          <Heart size={9} className="fill-current" />
-                        ) : isComment || isReply ? (
-                          <MessageSquare size={9} />
-                        ) : (
-                          <UserPlus size={9} />
-                        )}
-                      </span>
+                      <NotificationActionBadge
+                        type={item.type}
+                        reactionType={item.content}
+                        size="sm"
+                      />
                     </div>
 
                     {/* Notification Content */}
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs text-slate-800 dark:text-slate-200 leading-snug">
-                        <span className="font-semibold text-slate-900 dark:text-white">
+                      <p className="text-[13px] text-slate-800 dark:text-slate-200 leading-snug">
+                        <span className="font-bold text-slate-900 dark:text-white">
                           {item.actor.fullName || item.actor.username}
                         </span>{' '}
-                        {isLike && (item.type === 'LIKE_POST' ? 'liked your post' : 'liked your comment')}
-                        {isComment && 'commented on your post'}
-                        {isReply && 'replied to your comment'}
-                        {isFollow && 'started following you'}
+                        <span className="text-slate-600 dark:text-slate-300">
+                          {isLike && (item.type === 'LIKE_POST' ? 'reacted to your post' : 'reacted to your comment')}
+                          {isComment && 'commented on your post'}
+                          {isReply && 'replied to your comment'}
+                          {isFollow && 'started following you'}
+                        </span>
                       </p>
 
-                      {/* Snippet / preview if present */}
-                      {item.content && (
-                        <p className="mt-1 line-clamp-1 rounded-md bg-slate-100/70 dark:bg-white/[0.04] px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-400 italic">
+                      {/* For LIKE_COMMENT: show the comment that was reacted to */}
+                      {item.type === 'LIKE_COMMENT' && item.comment?.content && (
+                        <p className="mt-1 line-clamp-2 rounded-lg bg-slate-100/80 dark:bg-white/[0.05] px-2.5 py-1 text-xs text-slate-800 dark:text-slate-200">
+                          “{item.comment.content}”
+                        </p>
+                      )}
+
+                      {/* For LIKE_POST: show snippet of the post */}
+                      {item.type === 'LIKE_POST' && item.post?.content && (
+                        <p className="mt-1 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                          {item.post.content}
+                        </p>
+                      )}
+
+                      {/* For COMMENT_POST or REPLY_COMMENT: show the comment/reply text */}
+                      {(item.type === 'COMMENT_POST' || item.type === 'REPLY_COMMENT') && item.content && (
+                        <p className="mt-1 line-clamp-2 rounded-lg bg-slate-100/80 dark:bg-white/[0.05] px-2.5 py-1 text-xs text-slate-800 dark:text-slate-200">
                           “{item.content}”
                         </p>
                       )}
 
-                      <span className="mt-1 block text-[10px] text-slate-400 dark:text-slate-500">
+                      <span className="mt-1.5 block text-[11px] text-slate-400 dark:text-slate-500 font-medium">
                         {formatRelativeTime(item.createdAt)}
                       </span>
                     </div>

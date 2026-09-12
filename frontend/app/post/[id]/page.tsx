@@ -86,6 +86,23 @@ export default function PostDetailPage({
       .catch(() => {});
   }, [token]);
 
+  // Scroll to comment if URL has #comment-{id}
+  useEffect(() => {
+    if (!post || typeof window === 'undefined') return;
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#comment-')) {
+      setTimeout(() => {
+        const commentId = hash.slice(1);
+        const el = document.getElementById(commentId);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-2', 'ring-accent', 'transition-all');
+          setTimeout(() => el.classList.remove('ring-2', 'ring-accent'), 2500);
+        }
+      }, 350);
+    }
+  }, [post]);
+
   async function handleToggleSave(id: number) {
     if (!token) {
       openAuthModal({
@@ -114,7 +131,7 @@ export default function PostDetailPage({
   }
 
   return (
-    <div className="min-h-dvh w-full bg-[#f2f4f3] dark:bg-[#000000] text-slate-900 dark:text-slate-100 antialiased">
+    <div className="min-h-[calc(100dvh-56px)] w-full bg-[#f7f8f7] dark:bg-[#000000] text-slate-900 dark:text-slate-100 antialiased">
       <div className="mx-auto max-w-2xl px-4 py-6 sm:py-8">
         {/* Top Breadcrumb Navigation */}
         <div className="mb-6 flex items-center justify-between">

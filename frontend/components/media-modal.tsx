@@ -82,112 +82,161 @@ export function FullscreenMediaModal({
       aria-modal="true"
       aria-label={title}
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xs p-2 sm:p-4 md:p-6 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3.5 sm:p-6 md:p-8 animate-in fade-in duration-200"
     >
-      {/* Main Image Container Card */}
+      {/* Main Image Container Card - never covers whole screen */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative flex flex-col w-full h-full max-w-5xl rounded-2xl border border-white/[0.1] bg-[#0d0d0d] shadow-2xl overflow-hidden animate-in zoom-in-[0.98] duration-150"
+        className="relative flex flex-col w-full max-w-xl sm:max-w-2xl lg:max-w-3xl max-h-[82vh] sm:max-h-[86vh] rounded-2xl border border-white/[0.12] bg-[#0d0d0d] shadow-2xl overflow-hidden animate-in zoom-in-[0.98] duration-150 my-auto"
       >
         {/* Modal Header */}
-        <header className="flex items-center justify-between gap-3 border-b border-white/[0.08] bg-[#121212] px-4 py-3 sm:px-6 shrink-0">
-          <div className="flex min-w-0 items-center gap-3">
-            {author && (
-              <Link
-                href={`/profile/${encodeURIComponent(author.username)}`}
-                onClick={onClose}
-                className="shrink-0"
-              >
-                <UserAvatar
-                  src={author.avatarUrl}
-                  name={author.fullName || author.username}
-                  className="size-9 rounded-full border border-white/10"
-                />
-              </Link>
-            )}
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {author ? (
-                  <>
-                    <Link
-                      href={`/profile/${encodeURIComponent(author.username)}`}
-                      onClick={onClose}
-                      className="truncate text-xs sm:text-sm font-bold text-white hover:text-accent-fg hover:underline flex items-center gap-1"
-                    >
-                      <span>{author.fullName || author.username}</span>
-                      {author.isVerified && <VerifiedBadge size={14} />}
-                    </Link>
-                    <span className="text-[11px] text-slate-400">@{author.username}</span>
-                  </>
-                ) : (
-                  <span className="text-xs sm:text-sm font-bold text-white">{title}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent-fg bg-accent-subtle px-2 py-0.5 rounded-full border border-accent-subtle-border">
-                  <ImageIcon size={10} />
-                  <span>{title}</span>
-                </span>
-                {photoList.length > 1 && (
-                  <span className="text-[11px] font-semibold text-white/80 bg-white/10 px-2 py-0.5 rounded-full">
-                    {currentIndex + 1} / {photoList.length}
+        <header className="flex flex-col border-b border-white/[0.08] bg-[#121212] px-3.5 py-2.5 sm:px-5 sm:py-3 shrink-0">
+          {/* Top Bar: User Info & Close (plus inline buttons on desktop) */}
+          <div className="flex items-center justify-between gap-2.5 min-w-0">
+            <div className="flex min-w-0 items-center gap-2.5 flex-1">
+              {author && (
+                <Link
+                  href={`/profile/${encodeURIComponent(author.username)}`}
+                  onClick={onClose}
+                  className="shrink-0"
+                >
+                  <UserAvatar
+                    src={author.avatarUrl}
+                    name={author.fullName || author.username}
+                    className="size-8 sm:size-9 rounded-full border border-white/10"
+                  />
+                </Link>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {author ? (
+                    <>
+                      <Link
+                        href={`/profile/${encodeURIComponent(author.username)}`}
+                        onClick={onClose}
+                        className="truncate text-xs sm:text-sm font-bold text-white hover:text-accent-fg hover:underline flex items-center gap-1 min-w-0"
+                      >
+                        <span className="truncate">{author.fullName || author.username}</span>
+                        {author.isVerified && <VerifiedBadge size={13} className="shrink-0" />}
+                      </Link>
+                      <span className="text-[11px] text-slate-400 truncate shrink-0">@{author.username}</span>
+                    </>
+                  ) : (
+                    <span className="text-xs sm:text-sm font-bold text-white truncate">{title}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent-fg bg-accent-subtle px-2 py-0.5 rounded-full border border-accent-subtle-border shrink-0">
+                    <ImageIcon size={10} className="shrink-0" />
+                    <span>{title}</span>
                   </span>
-                )}
-                {subtitle && <span className="text-[10px] text-slate-400">{subtitle}</span>}
+                  {photoList.length > 1 && (
+                    <span className="text-[10px] font-semibold text-white/80 bg-white/10 px-1.5 py-0.5 rounded-full shrink-0">
+                      {currentIndex + 1} / {photoList.length}
+                    </span>
+                  )}
+                  {subtitle && <span className="text-[10px] text-slate-400 truncate">{subtitle}</span>}
+                </div>
               </div>
+            </div>
+
+            {/* Desktop Actions & Close Button */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="hidden sm:flex items-center gap-2">
+                {onChangePhoto && (
+                  <label
+                    className={`inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 hover:bg-white/15 text-white px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                      isUploading ? 'pointer-events-none opacity-60' : ''
+                    }`}
+                    title="Change photo"
+                  >
+                    <Camera size={13} className="shrink-0" />
+                    <span>{isUploading ? 'Updating…' : 'Change photo'}</span>
+                    <input
+                      type="file"
+                      className="sr-only"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      disabled={isUploading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) onChangePhoto(file);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
+
+                {onRemove && (
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmDelete(true)}
+                    disabled={isRemoving}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-950/30 hover:bg-rose-900/40 text-rose-300 px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                    title="Remove photo"
+                  >
+                    <Trash2 size={13} className="shrink-0" />
+                    <span>{isRemoving ? 'Removing…' : 'Remove photo'}</span>
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="grid size-8 place-items-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label="Close photo view"
+              >
+                <X size={18} />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {onChangePhoto && (
-              <label
-                className={`inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 hover:bg-white/15 text-white px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                  isUploading ? 'pointer-events-none opacity-60' : ''
-                }`}
-                title="Change photo"
-              >
-                <Camera size={13} className="shrink-0" />
-                <span>{isUploading ? 'Updating…' : 'Change photo'}</span>
-                <input
-                  type="file"
-                  className="sr-only"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  disabled={isUploading}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) onChangePhoto(file);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            )}
+          {/* Mobile Action Buttons: dedicated clean row that never squishes username or title */}
+          {(onChangePhoto || onRemove) && (
+            <div className="grid grid-cols-2 gap-2 pt-2 mt-2 border-t border-white/[0.08] sm:hidden">
+              {onChangePhoto && (
+                <label
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-white/10 hover:bg-white/15 text-white px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                    isUploading ? 'pointer-events-none opacity-60' : ''
+                  } ${!onRemove ? 'col-span-2' : ''}`}
+                  title="Change photo"
+                >
+                  <Camera size={13} className="shrink-0" />
+                  <span>{isUploading ? 'Updating…' : 'Change photo'}</span>
+                  <input
+                    type="file"
+                    className="sr-only"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    disabled={isUploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) onChangePhoto(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
 
-            {onRemove && (
-              <button
-                type="button"
-                onClick={() => setShowConfirmDelete(true)}
-                disabled={isRemoving}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-950/30 hover:bg-rose-900/40 text-rose-300 px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
-                title="Remove photo"
-              >
-                <Trash2 size={13} className="shrink-0" />
-                <span>{isRemoving ? 'Removing…' : 'Remove photo'}</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="grid size-8 place-items-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ml-1"
-              aria-label="Close photo view"
-            >
-              <X size={18} />
-            </button>
-          </div>
+              {onRemove && (
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmDelete(true)}
+                  disabled={isRemoving}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-950/30 hover:bg-rose-900/40 text-rose-300 px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 ${
+                    !onChangePhoto ? 'col-span-2' : ''
+                  }`}
+                  title="Remove photo"
+                >
+                  <Trash2 size={13} className="shrink-0" />
+                  <span>{isRemoving ? 'Removing…' : 'Remove photo'}</span>
+                </button>
+              )}
+            </div>
+          )}
         </header>
 
         {/* Center Canvas: Full High-Resolution Image + Navigation Controls */}
-        <div className="flex-1 flex items-center justify-center p-2 sm:p-4 bg-black overflow-hidden relative select-none">
+        <div className="flex-1 min-h-0 flex items-center justify-center p-2.5 sm:p-5 bg-black/95 overflow-hidden relative select-none">
           {/* Ambient blurred background */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -196,7 +245,7 @@ export function FullscreenMediaModal({
               src={fullUrl}
               alt=""
               aria-hidden="true"
-              className="absolute -inset-20 w-[calc(100%+160px)] h-[calc(100%+160px)] object-cover filter blur-3xl opacity-50 scale-150 pointer-events-none"
+              className="absolute -inset-20 w-[calc(100%+160px)] h-[calc(100%+160px)] object-cover filter blur-3xl opacity-30 scale-150 pointer-events-none"
             />
           </div>
 
@@ -205,7 +254,7 @@ export function FullscreenMediaModal({
             key={fullUrl}
             src={fullUrl}
             alt={`${title} - photo ${currentIndex + 1}`}
-            className="relative z-10 max-h-full max-w-full object-contain rounded-lg shadow-2xl transition-opacity duration-150 animate-in fade-in drop-shadow-[0_8px_30px_rgba(0,0,0,0.8)]"
+            className="relative z-10 max-h-[56vh] sm:max-h-[64vh] max-w-full object-contain rounded-xl shadow-2xl transition-opacity duration-150 animate-in fade-in drop-shadow-[0_8px_30px_rgba(0,0,0,0.8)]"
           />
 
           {/* Navigation Arrows (if multiple photos) */}

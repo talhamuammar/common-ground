@@ -214,6 +214,17 @@ export class PostsService {
         actorId: userId,
         type: 'LIKE_POST',
         postId: post.id,
+        content: result.type,
+      }).catch(() => {});
+    } else if (!result.liked && post.authorId !== userId) {
+      this.prisma.notification.deleteMany({
+        where: {
+          recipientId: post.authorId,
+          actorId: userId,
+          type: 'LIKE_POST',
+          postId: post.id,
+          read: false,
+        },
       }).catch(() => {});
     }
 
@@ -312,7 +323,7 @@ export class PostsService {
     return likes.map((l) => normalizePost(l.post));
   }
 
-  async getPostLikes(postId: number) {
+  async getPostLikes(postId: number, currentUserId?: number) {
     const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post) throw new NotFoundException('Post not found');
 
@@ -330,6 +341,12 @@ export class PostsService {
             isVerified: true,
             location: true,
             _count: { select: { followers: true } },
+            followers: currentUserId
+              ? {
+                  where: { followerId: currentUserId },
+                  select: { followerId: true },
+                }
+              : false,
           },
         },
       },
@@ -348,6 +365,7 @@ export class PostsService {
         isVerified: l.user.isVerified,
         location: l.user.location,
         followersCount: l.user._count?.followers ?? 0,
+        isFollowing: Array.isArray(l.user.followers) && l.user.followers.length > 0,
       },
     }));
   }
@@ -389,6 +407,17 @@ export class PostsService {
         type: 'LIKE_COMMENT',
         postId: comment.postId,
         commentId: comment.id,
+        content: result.type,
+      }).catch(() => {});
+    } else if (!result.liked && comment.authorId !== userId) {
+      this.prisma.notification.deleteMany({
+        where: {
+          recipientId: comment.authorId,
+          actorId: userId,
+          type: 'LIKE_COMMENT',
+          commentId: comment.id,
+          read: false,
+        },
       }).catch(() => {});
     }
 
@@ -409,7 +438,7 @@ export class PostsService {
     };
   }
 
-  async getCommentLikes(commentId: number) {
+  async getCommentLikes(commentId: number, currentUserId?: number) {
     const comment = await this.prisma.comment.findUnique({ where: { id: commentId } });
     if (!comment) throw new NotFoundException('Comment not found');
 
@@ -427,6 +456,12 @@ export class PostsService {
             isVerified: true,
             location: true,
             _count: { select: { followers: true } },
+            followers: currentUserId
+              ? {
+                  where: { followerId: currentUserId },
+                  select: { followerId: true },
+                }
+              : false,
           },
         },
       },
@@ -445,6 +480,7 @@ export class PostsService {
         isVerified: l.user.isVerified,
         location: l.user.location,
         followersCount: l.user._count?.followers ?? 0,
+        isFollowing: Array.isArray(l.user.followers) && l.user.followers.length > 0,
       },
     }));
   }

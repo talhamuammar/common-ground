@@ -25,6 +25,7 @@ import { VerifiedBadge } from './verified-badge';
 import { ThemeToggle } from './theme-toggle';
 import { CreatePostModal } from './create-post-modal';
 import { BrandLogo } from './brand-logo';
+import { SYNC_NOTIFICATION_EVENT, NotificationSyncEvent } from '../lib/realtime';
 
 function formatStatNumber(num: number): string {
   if (num >= 1_000_000) {
@@ -130,12 +131,23 @@ export function Sidebar() {
       } catch {}
     };
     fetchCount();
-    const interval = setInterval(fetchCount, 20000);
+
+    const handleNotificationSync = (e: Event) => {
+      const customEvent = e as CustomEvent<NotificationSyncEvent>;
+      if (customEvent.detail && typeof customEvent.detail.unreadCount === 'number') {
+        setSidebarUnreadCount(customEvent.detail.unreadCount);
+      }
+    };
+
+    window.addEventListener(SYNC_NOTIFICATION_EVENT, handleNotificationSync);
+    const interval = setInterval(fetchCount, 15000);
     return () => {
       isMounted = false;
       clearInterval(interval);
+      window.removeEventListener(SYNC_NOTIFICATION_EVENT, handleNotificationSync);
     };
   }, [token]);
+
 
   const navItems = user || token
     ? [
@@ -155,20 +167,20 @@ export function Sidebar() {
         { href: '/register', name: 'Sign up', icon: UserPlus },
       ];
 
-  // Core items specifically tailored for mobile bottom navigation
+  // Core items specifically tailored for mobile bottom navigation (Alerts replaced with Likes page)
   const mobileNavItems = user || token
     ? [
         { href: '/', name: 'Feed', icon: Home },
         { href: '#search', name: 'Search', icon: Search, isSearchTrigger: true },
-        { href: '/notifications', name: 'Alerts', icon: Bell, badge: sidebarUnreadCount },
+        { href: '/likes', name: 'Likes', icon: Heart },
         { href: '/friends', name: 'Friends', icon: Users },
         { href: profileHref, name: 'Profile', icon: User },
       ]
     : [
         { href: '/', name: 'Feed', icon: Home },
         { href: '#search', name: 'Search', icon: Search, isSearchTrigger: true },
+        { href: '/likes', name: 'Likes', icon: Heart },
         { href: '/login', name: 'Log in', icon: LogIn },
-        { href: '/register', name: 'Sign up', icon: UserPlus },
       ];
 
   const postsCount = user?._count?.posts ?? (user?.posts?.length ?? 0);
@@ -248,18 +260,7 @@ export function Sidebar() {
                 </Link>
 
                 <Link
-                  href={`${profileHref}?tab=followers`}
-                  className="group/stat px-1 transition-opacity hover:opacity-75"
-                  title="View followers"
-                >
-                  <p className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-slate-100 group-hover/stat:text-accent-fg">
-                    {formatStatNumber(followersCount)}
-                  </p>
-                  <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">Followers</p>
-                </Link>
-
-                <Link
-                  href={`${profileHref}?tab=following`}
+                  href={`${profileHref}?modal=following`}
                   className="group/stat px-1 transition-opacity hover:opacity-75"
                   title="View following"
                 >
@@ -267,6 +268,17 @@ export function Sidebar() {
                     {formatStatNumber(followingCount)}
                   </p>
                   <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">Following</p>
+                </Link>
+
+                <Link
+                  href={`${profileHref}?modal=followers`}
+                  className="group/stat px-1 transition-opacity hover:opacity-75"
+                  title="View followers"
+                >
+                  <p className="text-xs sm:text-[13px] font-bold text-slate-900 dark:text-slate-100 group-hover/stat:text-accent-fg">
+                    {formatStatNumber(followersCount)}
+                  </p>
+                  <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">Followers</p>
                 </Link>
               </div>
             </div>
@@ -309,6 +321,8 @@ export function Sidebar() {
                 ? pathname === '/' && !pathname.includes('tag=')
                 : name === 'Friends'
                 ? pathname.startsWith('/friends')
+                : name === 'Likes'
+                ? pathname.startsWith('/likes')
                 : name === 'Alerts' || name === 'Notifications'
                 ? pathname.startsWith('/notifications')
                 : name === 'Profile'

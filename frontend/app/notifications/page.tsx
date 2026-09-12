@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import {
   Bell,
   CheckCheck,
-  Heart,
   MessageSquare,
   UserPlus,
   Trash2,
@@ -19,6 +18,9 @@ import { API_URL } from '../../lib/api';
 import { UserAvatar } from '../../components/user-avatar';
 import { RightSidebar } from '../../components/right-sidebar';
 import { NotificationItem } from '../../components/notifications-dropdown';
+import { ReactionIconRenderer } from '../../components/premium-reaction-icons';
+import { NotificationActionBadge } from '../../components/notification-badge';
+import { broadcastNotificationSync, SYNC_NOTIFICATION_EVENT, NotificationSyncEvent } from '../../lib/realtime';
 
 function formatDetailedTime(dateString: string): string {
   const date = new Date(dateString);
@@ -78,6 +80,23 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     fetchNotifications();
+
+    const handleSync = (e: Event) => {
+      const customEvent = e as CustomEvent<NotificationSyncEvent>;
+      if (customEvent.detail && typeof customEvent.detail.unreadCount === 'number') {
+        setUnreadCount(customEvent.detail.unreadCount);
+        if (customEvent.detail.readAll) {
+          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        } else if (customEvent.detail.notificationId) {
+          setNotifications((prev) =>
+            prev.map((n) => (n.id === customEvent.detail.notificationId ? { ...n, read: true } : n)),
+          );
+        }
+      }
+    };
+
+    window.addEventListener(SYNC_NOTIFICATION_EVENT, handleSync);
+    return () => window.removeEventListener(SYNC_NOTIFICATION_EVENT, handleSync);
   }, [fetchNotifications]);
 
   async function handleMarkAsRead(id: number, e?: React.MouseEvent) {
@@ -87,7 +106,9 @@ export default function NotificationsPage() {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
+    const nextCount = Math.max(0, unreadCount - 1);
+    setUnreadCount(nextCount);
+    broadcastNotificationSync(nextCount, { notificationId: id });
 
     try {
       await fetch(`${API_URL}/notifications/${id}/read`, {
@@ -104,6 +125,7 @@ export default function NotificationsPage() {
 
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnreadCount(0);
+    broadcastNotificationSync(0, { readAll: true });
 
     try {
       await fetch(`${API_URL}/notifications/read-all`, {
@@ -124,7 +146,9 @@ export default function NotificationsPage() {
 
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     if (!itemToDelete.read) {
-      setUnreadCount((prev) => Math.max(0, prev - 1));
+      const nextCount = Math.max(0, unreadCount - 1);
+      setUnreadCount(nextCount);
+      broadcastNotificationSync(nextCount);
     }
 
     try {
@@ -138,8 +162,18 @@ export default function NotificationsPage() {
   }
 
   function handleCardClick(item: NotificationItem) {
-    if (!item.read) {
-      handleMarkAsRead(item.id);
+    // Opening any notification makes unread count zero across website
+    setUnreadCount(0);
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)),
+    );
+    broadcastNotificationSync(0, { notificationId: item.id });
+
+    if (!item.read && token) {
+      fetch(`${API_URL}/notifications/${item.id}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
     }
 
     if (item.type === 'FOLLOW') {
@@ -148,7 +182,11 @@ export default function NotificationsPage() {
     }
 
     if (item.postId) {
-      router.push(`/#post-${item.postId}`);
+      if (item.commentId) {
+        router.push(`/post/${item.postId}#comment-${item.commentId}`);
+      } else {
+        router.push(`/post/${item.postId}`);
+      }
     }
   }
 
@@ -185,7 +223,7 @@ export default function NotificationsPage() {
                 )}
               </div>
               <p className="mt-0.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                Stay updated with activity, likes, comments, and new followers.
+                Stay updated with reactions, comments, and new followers.
               </p>
             </div>
 
@@ -245,8 +283,8 @@ export default function NotificationsPage() {
                   : 'bg-white dark:bg-[#111] text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-white/[0.04]'
               }`}
             >
-              <Heart size={12} className={filter === 'LIKES' ? 'fill-current' : 'text-rose-500'} />
-              <span>Likes</span>
+              <ReactionIconRenderer type="LOVE" size={13} />
+              <span>Reactions</span>
             </button>
             <button
               type="button"
@@ -310,7 +348,7 @@ export default function NotificationsPage() {
                 {filter === 'COMMENTS' ? (
                   <MessageSquare size={22} className="text-sky-500" />
                 ) : filter === 'LIKES' ? (
-                  <Heart size={22} className="text-rose-500" />
+                  <ReactionIconRenderer type="LOVE" size={24} />
                 ) : filter === 'FOLLOWS' ? (
                   <UserPlus size={22} className="text-emerald-500" />
                 ) : filter === 'UNREAD' ? (
@@ -323,7 +361,7 @@ export default function NotificationsPage() {
                 {filter === 'UNREAD'
                   ? 'You are all caught up!'
                   : filter === 'LIKES'
-                  ? 'No likes yet'
+                  ? 'No reactions yet'
                   : filter === 'COMMENTS'
                   ? 'No comments yet'
                   : filter === 'FOLLOWS'
@@ -362,23 +400,11 @@ export default function NotificationsPage() {
                           name={item.actor.fullName || item.actor.username}
                           className="size-10 text-xs"
                         />
-                        <span
-                          className={`absolute -bottom-1 -right-1 grid size-5 place-items-center rounded-full border-2 border-white dark:border-[#0d0d0d] text-white shadow-xs ${
-                            isLike
-                              ? 'bg-rose-500'
-                              : isComment || isReply
-                              ? 'bg-sky-500'
-                              : 'bg-emerald-500'
-                          }`}
-                        >
-                          {isLike ? (
-                            <Heart size={10} className="fill-current" />
-                          ) : isComment || isReply ? (
-                            <MessageSquare size={10} />
-                          ) : (
-                            <UserPlus size={10} />
-                          )}
-                        </span>
+                        <NotificationActionBadge
+                          type={item.type}
+                          reactionType={item.content}
+                          size="md"
+                        />
                       </div>
 
                       {/* Content Area */}
@@ -394,23 +420,30 @@ export default function NotificationsPage() {
                           <span className="text-xs text-slate-600 dark:text-slate-300">
                             {isLike &&
                               (item.type === 'LIKE_POST'
-                                ? 'liked your post'
-                                : 'liked your comment')}
+                                ? 'reacted to your post'
+                                : 'reacted to your comment')}
                             {isComment && 'commented on your post'}
                             {isReply && 'replied to your comment'}
                             {isFollow && 'started following you'}
                           </span>
                         </div>
 
-                        {/* Comment or preview content */}
-                        {item.content && (
+                        {/* For LIKE_COMMENT: show which comment was reacted to */}
+                        {item.type === 'LIKE_COMMENT' && item.comment?.content && (
+                          <div className="mt-1.5 rounded-xl border border-slate-200/60 dark:border-white/[0.06] bg-slate-50/70 dark:bg-white/[0.02] p-2 text-xs text-slate-700 dark:text-slate-300 italic">
+                            “{item.comment.content}”
+                          </div>
+                        )}
+
+                        {/* For COMMENT_POST or REPLY_COMMENT: show comment/reply text */}
+                        {(item.type === 'COMMENT_POST' || item.type === 'REPLY_COMMENT') && item.content && (
                           <div className="mt-1.5 rounded-xl border border-slate-200/60 dark:border-white/[0.06] bg-slate-50/70 dark:bg-white/[0.02] p-2 text-xs text-slate-700 dark:text-slate-300 italic">
                             “{item.content}”
                           </div>
                         )}
 
-                        {/* Post snippet */}
-                        {item.post && !item.content && (
+                        {/* For LIKE_POST: show snippet of the post */}
+                        {item.type === 'LIKE_POST' && item.post?.content && (
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
                             {item.post.content}
                           </p>

@@ -10,6 +10,7 @@ import { useAuthModal } from './auth-modal';
 import { UserAvatar } from './user-avatar';
 import { VerifiedBadge } from './verified-badge';
 import { UserPlus, Flame, MessageSquare, ChevronRight, Check, X, Heart } from 'lucide-react';
+import { broadcastFollowChange, SYNC_FOLLOW_EVENT, FollowChangeEvent } from '../lib/realtime';
 
 export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
   const router = useRouter();
@@ -99,7 +100,7 @@ export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
           setSuggestions(list);
           const initialMap: Record<number, boolean> = {};
           list.forEach(u => { initialMap[u.id] = u.isFollowing; });
-          setFollowingStates(initialMap);
+          setFollowingStates(prev => ({ ...initialMap, ...prev }));
         }
       } catch {
         if (active) setSuggestions([]);
@@ -109,7 +110,21 @@ export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
     }
     fetchSuggestions();
     return () => { active = false; };
-  }, [token, user]);
+  }, [token, user?.id]);
+
+  useEffect(() => {
+    function handleFollowEvent(e: Event) {
+      const customEvent = e as CustomEvent<FollowChangeEvent>;
+      if (customEvent.detail && customEvent.detail.targetUserId) {
+        setFollowingStates(prev => ({
+          ...prev,
+          [customEvent.detail.targetUserId]: customEvent.detail.following,
+        }));
+      }
+    }
+    window.addEventListener(SYNC_FOLLOW_EVENT, handleFollowEvent);
+    return () => window.removeEventListener(SYNC_FOLLOW_EVENT, handleFollowEvent);
+  }, []);
 
   async function handleToggleFollow(suggested: SuggestedUser) {
     if (!token) {
@@ -121,8 +136,10 @@ export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
     }
     const currentStatus = Boolean(followingStates[suggested.id]);
     const nextStatus = !currentStatus;
+    const delta = nextStatus ? 1 : -1;
 
     setFollowingStates(prev => ({ ...prev, [suggested.id]: nextStatus }));
+    broadcastFollowChange(delta, suggested.id, nextStatus);
 
     try {
       const method = nextStatus ? 'POST' : 'DELETE';
@@ -132,6 +149,7 @@ export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
       });
     } catch {
       setFollowingStates(prev => ({ ...prev, [suggested.id]: currentStatus }));
+      broadcastFollowChange(-delta, suggested.id, currentStatus);
     }
   }
 
@@ -146,29 +164,12 @@ export function RightSidebar({ posts = [] }: { posts?: Post[] }) {
   }
 
   function handleSelectDiscussion(postId: number, e?: React.MouseEvent) {
-    if (e) e.preventDefault();
-
-    // 1. Clear any active hashtag/search filter so the post is guaranteed to show
-    window.dispatchEvent(new CustomEvent('cg:filter-tag', { detail: '' }));
-    window.dispatchEvent(new CustomEvent('cg:focus-post', { detail: postId }));
-
-    // 2. Clean URL to /#post-{id} without keeping the ?tag= query
-    router.push(`/#post-${postId}`);
-
-    // 3. Smooth scroll and highlight
-    setTimeout(() => {
-      const el = document.getElementById(`post-${postId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('ring-2', 'ring-accent', 'transition-all');
-        setTimeout(() => {
-          el.classList.remove('ring-2', 'ring-accent');
-        }, 2500);
-      }
-    }, 150);
-
-    // 4. Close modal if open
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     setModalTab(null);
+    router.push(`/post/${postId}`);
   }
 
   // Active discussions: top 10 sorted by comment count then likes desc

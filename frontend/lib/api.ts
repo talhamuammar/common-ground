@@ -11,7 +11,7 @@ export type PostComment = {
   _count?: { likes: number; replies?: number };
 };
 
-export type ReactionType = 'LIKE' | 'LOVE' | 'CELEBRATE' | 'LAUGH' | 'WOW' | 'SUPPORT';
+export type ReactionType = 'LIKE' | 'LOVE' | 'CELEBRATE' | 'LAUGH' | 'WOW' | 'SAD' | 'SUPPORT' | 'BITING_LIP';
 
 export type Post = {
   id: number;

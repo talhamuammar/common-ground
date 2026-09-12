@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../../../components/auth-provider';
 import { useAuthModal } from '../../../components/auth-modal';
@@ -11,9 +11,11 @@ import { FullscreenMediaModal } from '../../../components/media-modal';
 import { UserAvatar } from '../../../components/user-avatar';
 import { VerifiedBadge } from '../../../components/verified-badge';
 import { LocationMapPreview } from '../../../components/location-map-preview';
+import { FollowersModal } from '../../../components/followers-modal';
 import { GithubIcon, TwitterXIcon, LinkedinIcon, InstagramIcon } from '../../../components/social-icons';
 import { API_URL, mediaUrl, Post, PublicProfile, Relationship, SuggestedUser, UserListItem } from '../../../lib/api';
 import { useReactionsSync } from '../../../lib/reactions-realtime';
+import { broadcastFollowChange, SYNC_FOLLOW_EVENT, FollowChangeEvent } from '../../../lib/realtime';
 import { parseWorkItems, parseEducationItems, formatWorkText, formatEducationText } from '../../../lib/work-study';
 import {
   Briefcase, GraduationCap, MapPin, Globe, Heart, Calendar,
@@ -137,14 +139,42 @@ function UserGridList({
 
 export default function PublicProfilePage() {
   const { username } = useParams<{ username: string }>();
+  const searchParams = useSearchParams();
   const { token, user, ready, refresh } = useAuth();
   const { openAuthModal } = useAuthModal();
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [relationship, setRelationship] = useState<Relationship | null>(null);
   const [activeTab, setActiveTab] = useState<ProfileTab>('timeline');
+  const [connectionsModal, setConnectionsModal] = useState<{ isOpen: boolean; tab: 'followers' | 'following' }>({
+    isOpen: false,
+    tab: 'following',
+  });
   const [loading, setLoading] = useState(true);
   const [action, setAction] = useState<'follow' | null>(null);
   const [error, setError] = useState('');
+
+  // Cleanly close modal and clear any URL query param
+  const handleCloseConnectionsModal = useCallback(() => {
+    setConnectionsModal((prev) => ({ ...prev, isOpen: false }));
+    if (typeof window !== 'undefined' && window.location.search) {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('modal') || url.searchParams.has('tab')) {
+        url.searchParams.delete('modal');
+        url.searchParams.delete('tab');
+        window.history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+      }
+    }
+  }, []);
+
+  // Handle URL query to open followers/following modal
+  useEffect(() => {
+    const modalParam = searchParams.get('modal') || searchParams.get('tab');
+    if (modalParam === 'followers') {
+      setConnectionsModal({ isOpen: true, tab: 'followers' });
+    } else if (modalParam === 'following') {
+      setConnectionsModal({ isOpen: true, tab: 'following' });
+    }
+  }, [searchParams]);
   const [savedPostIds, setSavedPostIds] = useState<number[]>([]);
   const [activePhotoModalPost, setActivePhotoModalPost] = useState<Post | null>(null);
   const [viewingMediaModal, setViewingMediaModal] = useState<{
@@ -313,7 +343,9 @@ export default function PublicProfilePage() {
     }
     const currentStatus = Boolean(followingMap[suggested.id]);
     const nextStatus = !currentStatus;
+    const delta = nextStatus ? 1 : -1;
     setFollowingMap((prev) => ({ ...prev, [suggested.id]: nextStatus }));
+    broadcastFollowChange(delta, suggested.id, nextStatus);
 
     try {
       const method = nextStatus ? 'POST' : 'DELETE';
@@ -323,6 +355,7 @@ export default function PublicProfilePage() {
       });
     } catch {
       setFollowingMap((prev) => ({ ...prev, [suggested.id]: currentStatus }));
+      broadcastFollowChange(-delta, suggested.id, currentStatus);
     }
   }
 
@@ -561,6 +594,27 @@ export default function PublicProfilePage() {
     return () => controller.abort();
   }, [profileId, ready, token]);
 
+  useEffect(() => {
+    function handleFollowSync(e: Event) {
+      const customEvent = e as CustomEvent<FollowChangeEvent>;
+      if (customEvent.detail && profileId && customEvent.detail.targetUserId === profileId) {
+        setRelationship((prev) => (prev ? { ...prev, following: customEvent.detail.following } : prev));
+        setProfile((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            _count: {
+              ...prev._count,
+              followers: Math.max(0, prev._count.followers + customEvent.detail.delta),
+            },
+          };
+        });
+      }
+    }
+    window.addEventListener(SYNC_FOLLOW_EVENT, handleFollowSync);
+    return () => window.removeEventListener(SYNC_FOLLOW_EVENT, handleFollowSync);
+  }, [profileId]);
+
   async function handleFollowToggle() {
     if (!token) {
       openAuthModal({
@@ -580,9 +634,10 @@ export default function PublicProfilePage() {
       if (!response.ok) throw new Error('Could not update relationship');
       const updated: Relationship = await response.json();
       setRelationship(updated);
+      const delta = currentlyFollowing ? -1 : 1;
+      broadcastFollowChange(delta, profile.id, !currentlyFollowing);
       setProfile((prev) => {
         if (!prev) return prev;
-        const delta = currentlyFollowing ? -1 : 1;
         const newCount = Math.max(0, prev._count.followers + delta);
         const friendsDelta = (updated.friend && !relationship?.friend) ? 1 : (!updated.friend && relationship?.friend) ? -1 : 0;
         return {
@@ -754,7 +809,7 @@ export default function PublicProfilePage() {
                   <div className="mt-3 sm:mt-3.5 flex items-center gap-6 sm:gap-7 text-sm sm:text-[15px]">
                     <button
                       type="button"
-                      onClick={() => setActiveTab('following')}
+                      onClick={() => setConnectionsModal({ isOpen: true, tab: 'following' })}
                       className="inline-flex items-center gap-1.5 hover:underline cursor-pointer transition-colors"
                     >
                       <strong className="font-bold text-slate-900 dark:text-slate-100">
@@ -767,7 +822,7 @@ export default function PublicProfilePage() {
 
                     <button
                       type="button"
-                      onClick={() => setActiveTab('followers')}
+                      onClick={() => setConnectionsModal({ isOpen: true, tab: 'followers' })}
                       className="inline-flex items-center gap-1.5 hover:underline cursor-pointer transition-colors"
                     >
                       <strong className="font-bold text-slate-900 dark:text-slate-100">
@@ -1185,7 +1240,7 @@ export default function PublicProfilePage() {
                   <span>Followed by </span>
                   <button
                     type="button"
-                    onClick={() => setActiveTab('followers')}
+                    onClick={() => setConnectionsModal({ isOpen: true, tab: 'followers' })}
                     className="font-bold text-slate-800 dark:text-slate-100 hover:text-accent-fg hover:underline transition-colors cursor-pointer"
                   >
                     {(profile._count?.followers ?? 0).toLocaleString()}{' '}
@@ -1305,19 +1360,19 @@ export default function PublicProfilePage() {
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab('followers')}
-                className={`rounded-lg p-2.5 transition-all text-center ${activeTab === 'followers' ? 'bg-accent text-accent-text shadow-xs' : 'bg-accent-subtle text-slate-700 dark:text-slate-300 hover:bg-accent-subtle-hover'}`}
+                onClick={() => setConnectionsModal({ isOpen: true, tab: 'followers' })}
+                className="rounded-lg p-2.5 transition-all text-center bg-accent-subtle text-slate-700 dark:text-slate-300 hover:bg-accent-subtle-hover cursor-pointer"
               >
-                <p className={`text-lg font-bold ${activeTab === 'followers' ? 'text-accent-text' : 'text-accent-fg'}`}>{profile._count.followers}</p>
-                <p className={`text-xs font-medium ${activeTab === 'followers' ? 'text-slate-200' : 'text-slate-600 dark:text-slate-400'}`}>Followers</p>
+                <p className="text-lg font-bold text-accent-fg">{profile._count.followers}</p>
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Followers</p>
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab('following')}
-                className={`rounded-lg p-2.5 transition-all text-center ${activeTab === 'following' ? 'bg-accent text-accent-text shadow-xs' : 'bg-accent-subtle text-slate-700 dark:text-slate-300 hover:bg-accent-subtle-hover'}`}
+                onClick={() => setConnectionsModal({ isOpen: true, tab: 'following' })}
+                className="rounded-lg p-2.5 transition-all text-center bg-accent-subtle text-slate-700 dark:text-slate-300 hover:bg-accent-subtle-hover cursor-pointer"
               >
-                <p className={`text-lg font-bold ${activeTab === 'following' ? 'text-accent-text' : 'text-accent-fg'}`}>{profile._count.following}</p>
-                <p className={`text-xs font-medium ${activeTab === 'following' ? 'text-slate-200' : 'text-slate-600 dark:text-slate-400'}`}>Following</p>
+                <p className="text-lg font-bold text-accent-fg">{profile._count.following}</p>
+                <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Following</p>
               </button>
               <button
                 type="button"
@@ -1429,7 +1484,7 @@ export default function PublicProfilePage() {
                       <dd className="mt-1 text-sm sm:text-[15px] text-slate-800 dark:text-slate-100">
                         <button
                           type="button"
-                          onClick={() => setActiveTab('followers')}
+                          onClick={() => setConnectionsModal({ isOpen: true, tab: 'followers' })}
                           className="inline-flex items-center gap-2 hover:opacity-85 transition-opacity cursor-pointer group"
                         >
                           {profile.followersList && profile.followersList.length > 0 && (
@@ -1820,25 +1875,6 @@ export default function PublicProfilePage() {
             </div>
           )}
 
-          {activeTab === 'followers' && (
-            <UserGridList
-              title="Followers"
-              description={`People following ${profile.fullName || profile.username}.`}
-              emptyTitle="No followers yet"
-              emptyDescription="When people follow this profile, they will appear here."
-              users={profile.followersList}
-            />
-          )}
-
-          {activeTab === 'following' && (
-            <UserGridList
-              title="Following"
-              description={`People ${profile.fullName || profile.username} is following.`}
-              emptyTitle="Not following anyone yet"
-              emptyDescription="When this user follows people, they will appear here."
-              users={profile.followingList}
-            />
-          )}
 
           {activeTab === 'friends' && (
             <UserGridList
@@ -1997,6 +2033,21 @@ export default function PublicProfilePage() {
               };
             });
           }}
+        />
+      )}
+
+      {/* Followers & Following Modal */}
+      {profile && (
+        <FollowersModal
+          isOpen={connectionsModal.isOpen}
+          onClose={handleCloseConnectionsModal}
+          initialTab={connectionsModal.tab}
+          profileUsername={profile.username}
+          profileFullName={profile.fullName}
+          followers={profile.followersList}
+          following={profile.followingList}
+          followersCount={profile._count?.followers}
+          followingCount={profile._count?.following}
         />
       )}
     </div>

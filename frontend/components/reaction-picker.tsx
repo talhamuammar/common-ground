@@ -1,14 +1,16 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import type { ReactionType } from '../lib/api';
 import {
-  PremiumLikeIcon,
-  PremiumLoveIcon,
-  PremiumCelebrateIcon,
-  PremiumLaughIcon,
-  PremiumWowIcon,
-  PremiumCareIcon,
+  ModernLikeIcon,
+  ModernLoveIcon,
+  ModernCelebrateIcon,
+  ModernLaughIcon,
+  ModernWowIcon,
+  ModernSadIcon,
+  ModernCareIcon,
+  ModernBitingLipIcon,
   ReactionIconRenderer,
 } from './premium-reaction-icons';
 
@@ -20,12 +22,14 @@ export interface ReactionMeta {
 }
 
 export const REACTIONS: ReactionMeta[] = [
-  { key: 'LIKE', label: 'Like', renderIcon: (s, c) => <PremiumLikeIcon size={s} className={c} />, activeColor: 'text-[#1877f2] dark:text-[#388af6]' },
-  { key: 'LOVE', label: 'Love', renderIcon: (s, c) => <PremiumLoveIcon size={s} className={c} />, activeColor: 'text-rose-500 dark:text-rose-400' },
-  { key: 'CELEBRATE', label: 'Celebrate', renderIcon: (s, c) => <PremiumCelebrateIcon size={s} className={c} />, activeColor: 'text-amber-500 dark:text-amber-400' },
-  { key: 'LAUGH', label: 'Haha', renderIcon: (s, c) => <PremiumLaughIcon size={s} className={c} />, activeColor: 'text-yellow-500 dark:text-yellow-400' },
-  { key: 'WOW', label: 'Wow', renderIcon: (s, c) => <PremiumWowIcon size={s} className={c} />, activeColor: 'text-purple-500 dark:text-purple-400' },
-  { key: 'SUPPORT', label: 'Care', renderIcon: (s, c) => <PremiumCareIcon size={s} className={c} />, activeColor: 'text-pink-500 dark:text-pink-400' },
+  { key: 'LIKE', label: 'Like', renderIcon: (s, c) => <ModernLikeIcon size={s} className={c} />, activeColor: 'text-[#1877f2] dark:text-[#388af6]' },
+  { key: 'LOVE', label: 'Love', renderIcon: (s, c) => <ModernLoveIcon size={s} className={c} />, activeColor: 'text-rose-500 dark:text-rose-400' },
+  { key: 'CELEBRATE', label: 'Celebrate', renderIcon: (s, c) => <ModernCelebrateIcon size={s} className={c} />, activeColor: 'text-amber-500 dark:text-amber-400' },
+  { key: 'LAUGH', label: 'Haha', renderIcon: (s, c) => <ModernLaughIcon size={s} className={c} />, activeColor: 'text-yellow-500 dark:text-yellow-400' },
+  { key: 'WOW', label: 'Wow', renderIcon: (s, c) => <ModernWowIcon size={s} className={c} />, activeColor: 'text-purple-500 dark:text-purple-400' },
+  { key: 'SAD', label: 'Sad', renderIcon: (s, c) => <ModernSadIcon size={s} className={c} />, activeColor: 'text-sky-500 dark:text-sky-400' },
+  { key: 'SUPPORT', label: 'Care', renderIcon: (s, c) => <ModernCareIcon size={s} className={c} />, activeColor: 'text-pink-500 dark:text-pink-400' },
+  { key: 'BITING_LIP', label: 'Bite', renderIcon: (s, c) => <ModernBitingLipIcon size={s} className={c} />, activeColor: 'text-red-500 dark:text-red-400' },
 ];
 
 export function getReactionMeta(key?: string | null): ReactionMeta {
@@ -55,9 +59,14 @@ export function ReactionPicker({
 }: ReactionPickerProps) {
   const [isDockOpen, setIsDockOpen] = useState(false);
   const [placement, setPlacement] = useState<'up' | 'down'>('up');
+  const [dockOffset, setDockOffset] = useState<number>(0);
   const [hoveredReaction, setHoveredReaction] = useState<ReactionType | null>(null);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressClickRef = useRef<boolean>(false);
 
   const activeMeta = currentReaction ? getReactionMeta(currentReaction) : null;
 
@@ -77,20 +86,20 @@ export function ReactionPicker({
       .map(([type]) => type as ReactionType);
   }, [reactionsList, totalCount, currentReaction]);
 
-  const handleMouseEnter = () => {
-    if (disabled) return;
-    if (leaveTimeoutRef.current) {
-      clearTimeout(leaveTimeoutRef.current);
-      leaveTimeoutRef.current = null;
-    }
+  const updatePosition = useCallback(() => {
+    if (!containerRef.current) return;
+    const triggerRect = containerRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const estimatedDockWidth = 328; // 8 items (~36px each + padding)
+    const padding = 8;
 
+    // Vertical placement calculation
     if (dockDirection === 'down') {
       setPlacement('down');
     } else if (dockDirection === 'up') {
       setPlacement('up');
-    } else if (containerRef.current) {
+    } else {
       const scrollParent = containerRef.current.closest('.overflow-y-auto, .overflow-auto');
-      const triggerRect = containerRef.current.getBoundingClientRect();
       if (scrollParent) {
         const parentRect = scrollParent.getBoundingClientRect();
         const spaceAbove = triggerRect.top - parentRect.top;
@@ -100,7 +109,35 @@ export function ReactionPicker({
       }
     }
 
+    // Horizontal viewport clamping so dock never overflows phone screen
+    let shift = 0;
+    if (triggerRect.left + estimatedDockWidth > viewportWidth - padding) {
+      shift = (viewportWidth - padding) - (triggerRect.left + estimatedDockWidth);
+    }
+    if (triggerRect.left + shift < padding) {
+      shift = padding - triggerRect.left;
+    }
+    setDockOffset(shift);
+  }, [dockDirection]);
+
+  const openDock = useCallback(() => {
+    if (disabled) return;
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    updatePosition();
     setIsDockOpen(true);
+  }, [disabled, updatePosition]);
+
+  const handleMouseEnter = () => {
+    openDock();
+  };
+
+  const handleMouseMove = () => {
+    if (!isDockOpen) {
+      openDock();
+    }
   };
 
   const handleMouseLeave = () => {
@@ -108,13 +145,54 @@ export function ReactionPicker({
     leaveTimeoutRef.current = setTimeout(() => {
       setIsDockOpen(false);
       setHoveredReaction(null);
-    }, 180);
+    }, 200);
+  };
+
+  // Touch and Long-press handlers for mobile phone browser
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (disabled) return;
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    suppressClickRef.current = false;
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
+    // 250ms touch-and-hold opens the reaction dock smoothly on phones
+    longPressTimerRef.current = setTimeout(() => {
+      suppressClickRef.current = true;
+      try {
+        if ('vibrate' in navigator) navigator.vibrate(15);
+      } catch {}
+      openDock();
+    }, 250);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPosRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+    // If user scrolled/moved finger > 8px, cancel long-press
+    if (dx > 8 || dy > 8) {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
   };
 
   // Clean up timer on unmount
   useEffect(() => {
     return () => {
       if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     };
   }, []);
 
@@ -136,6 +214,13 @@ export function ReactionPicker({
   function handleMainButtonClick(e: React.MouseEvent) {
     e.stopPropagation();
     if (disabled) return;
+
+    // If click was triggered right after a long-press opened the dock, ignore it
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+
     if (isDockOpen) {
       setIsDockOpen(false);
     }
@@ -160,27 +245,35 @@ export function ReactionPicker({
 
   return (
     <div className="inline-flex items-center gap-1.5">
-      {/* Reaction Action Trigger & Hover Dock (Only hovering here opens reaction dock) */}
+      {/* Reaction Action Trigger & Hover/Touch Dock */}
       <div
         ref={containerRef}
         className="group/picker relative inline-flex items-center"
         onMouseEnter={handleMouseEnter}
+        onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
-        {/* Floating Reactions Dock on Hover (Solid opaque - zero glass effect) */}
+        {/* Floating Reactions Dock on Hover / Touch with Viewport Clamping */}
         <div
           role="dialog"
           aria-label="Reaction options"
-          className={`absolute left-0 flex items-center gap-1 rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-[#141414] px-2 py-1.5 shadow-xl z-50 transition-all duration-200 ${
+          style={{
+            transform: `translateX(${dockOffset}px) ${
+              isDockOpen
+                ? 'translateY(0) scale(1)'
+                : placement === 'down'
+                ? 'translateY(-4px) scale(0.92)'
+                : 'translateY(4px) scale(0.92)'
+            }`,
+          }}
+          className={`absolute left-0 flex items-center gap-1 rounded-full border border-slate-200 dark:border-white/10 bg-white dark:bg-[#141414] px-2 py-1.5 shadow-xl z-50 transition-all duration-150 ${
             placement === 'down'
               ? 'top-full mt-2 origin-top-left after:absolute after:-top-3 after:left-0 after:right-0 after:h-4 after:content-[\'\']'
               : 'bottom-full mb-2 origin-bottom-left after:absolute after:-bottom-3 after:left-0 after:right-0 after:h-4 after:content-[\'\']'
           } ${
             isDockOpen
-              ? 'opacity-100 scale-100 pointer-events-auto translate-y-0'
-              : placement === 'down'
-                ? 'opacity-0 scale-90 pointer-events-none -translate-y-1'
-                : 'opacity-0 scale-90 pointer-events-none translate-y-1'
+              ? 'opacity-100 pointer-events-auto'
+              : 'opacity-0 pointer-events-none'
           }`}
         >
           {REACTIONS.map((item) => {
@@ -193,10 +286,8 @@ export function ReactionPicker({
                 onClick={(e) => handlePick(e, item.key)}
                 onMouseEnter={() => setHoveredReaction(item.key)}
                 onMouseLeave={() => setHoveredReaction(null)}
-                className={`group/emoji relative rounded-full p-1.5 transition-all duration-150 ease-out hover:scale-130 hover:-translate-y-1.5 active:scale-105 ${
-                  isSelected
-                    ? 'scale-115 -translate-y-0.5 bg-slate-100 dark:bg-white/10 ring-1.5 ring-slate-400/50 dark:ring-white/40'
-                    : 'hover:bg-slate-100 dark:hover:bg-white/10'
+                className={`group/emoji relative p-1.5 sm:p-1 transition-transform duration-150 ease-out hover:scale-130 hover:-translate-y-1.5 active:scale-105 touch-manipulation cursor-pointer ${
+                  isSelected ? 'scale-115 -translate-y-0.5' : ''
                 }`}
                 aria-label={`React with ${item.label}`}
               >
@@ -220,8 +311,12 @@ export function ReactionPicker({
         <button
           type="button"
           onClick={handleMainButtonClick}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
           disabled={disabled}
-          className={`group/btn relative flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-all active:scale-95 select-none ${
+          className={`group/btn relative flex items-center gap-1.5 rounded-full px-2.5 py-1 transition-all active:scale-95 select-none touch-manipulation cursor-pointer ${
             activeMeta
               ? activeMeta.key === 'LIKE'
                 ? 'bg-blue-50/90 dark:bg-blue-950/40 text-[#1877f2] dark:text-[#388af6] font-bold border border-blue-200/90 dark:border-blue-800/50 shadow-2xs'
@@ -248,7 +343,7 @@ export function ReactionPicker({
         </button>
       </div>
 
-      {/* Clickable Overlapping Badges + Total Count: Opens Likes Modal (Hover does not open dock) */}
+      {/* Clickable Overlapping Badges + Total Count: Opens Likes Modal */}
       {totalCount > 0 && (
         <button
           type="button"

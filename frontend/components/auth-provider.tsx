@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_URL, Post } from '../lib/api';
+import { initCrossTabSync, SYNC_FOLLOW_EVENT, FollowChangeEvent } from '../lib/realtime';
 
 type Profile = {
   id: number;
@@ -99,13 +100,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storage = (event: StorageEvent) => {
       if (event.key === 'accessToken' || event.key === null) { setUser(null); sync(); }
     };
+    initCrossTabSync();
+
+    const handleFollowChange = (event: Event) => {
+      const customEvent = event as CustomEvent<FollowChangeEvent>;
+      if (customEvent.detail && typeof customEvent.detail.delta === 'number') {
+        setUser((prev) => {
+          if (!prev) return prev;
+          const currentFollowing = prev._count?.following ?? 0;
+          const nextFollowing = Math.max(0, currentFollowing + customEvent.detail.delta);
+          return {
+            ...prev,
+            _count: {
+              ...prev._count,
+              following: nextFollowing,
+            },
+          };
+        });
+      }
+    };
+
     window.addEventListener('storage', storage);
     window.addEventListener('focus', sync);
+    window.addEventListener(SYNC_FOLLOW_EVENT, handleFollowChange);
     const interval = window.setInterval(sync, 60000);
     return () => {
       requests.current++;
       window.removeEventListener('storage', storage);
       window.removeEventListener('focus', sync);
+      window.removeEventListener(SYNC_FOLLOW_EVENT, handleFollowChange);
       window.clearInterval(interval);
     };
   }, [refresh]);

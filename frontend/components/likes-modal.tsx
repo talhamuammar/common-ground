@@ -10,6 +10,7 @@ import { UserAvatar } from './user-avatar';
 import { VerifiedBadge } from './verified-badge';
 import { ReactionIconRenderer } from './premium-reaction-icons';
 import { REACTIONS } from './reaction-picker';
+import { broadcastFollowChange, SYNC_FOLLOW_EVENT, FollowChangeEvent } from '../lib/realtime';
 
 export interface LikedUserItem {
   userId: number;
@@ -24,6 +25,7 @@ export interface LikedUserItem {
     isVerified?: boolean;
     location?: string | null;
     followersCount?: number;
+    isFollowing?: boolean;
   };
 }
 
@@ -64,12 +66,22 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
       ? `${API_URL}/posts/comments/${commentId}/likes`
       : `${API_URL}/posts/${postId}/likes`;
 
-    fetch(url)
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    fetch(url, { headers })
       .then((res) => (res.ok ? res.json() : []))
       .then((data: LikedUserItem[]) => {
         if (!active) return;
         if (Array.isArray(data)) {
           setLikes(data);
+          const initialMap: Record<number, boolean> = {};
+          data.forEach((item) => {
+            if (item.user && item.user.isFollowing !== undefined) {
+              initialMap[item.user.id] = item.user.isFollowing;
+            }
+          });
+          setFollowingMap((prev) => ({ ...initialMap, ...prev }));
         }
       })
       .catch(() => {})
@@ -80,7 +92,22 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
     return () => {
       active = false;
     };
-  }, [isOpen, postId, commentId]);
+  }, [isOpen, postId, commentId, token]);
+
+  // Keep follow states synced with global events
+  useEffect(() => {
+    function handleFollowEvent(e: Event) {
+      const customEvent = e as CustomEvent<FollowChangeEvent>;
+      if (customEvent.detail && customEvent.detail.targetUserId) {
+        setFollowingMap((prev) => ({
+          ...prev,
+          [customEvent.detail.targetUserId]: customEvent.detail.following,
+        }));
+      }
+    }
+    window.addEventListener(SYNC_FOLLOW_EVENT, handleFollowEvent);
+    return () => window.removeEventListener(SYNC_FOLLOW_EVENT, handleFollowEvent);
+  }, []);
 
   async function handleToggleFollow(targetId: number) {
     if (!token) {
@@ -93,8 +120,10 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
 
     const isCurrentlyFollowing = Boolean(followingMap[targetId]);
     const nextState = !isCurrentlyFollowing;
+    const delta = nextState ? 1 : -1;
 
     setFollowingMap((prev) => ({ ...prev, [targetId]: nextState }));
+    broadcastFollowChange(delta, targetId, nextState);
     setBusyId(targetId);
 
     try {
@@ -105,6 +134,7 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
       if (!res.ok) throw new Error('Follow toggle failed');
     } catch {
       setFollowingMap((prev) => ({ ...prev, [targetId]: isCurrentlyFollowing }));
+      broadcastFollowChange(-delta, targetId, isCurrentlyFollowing);
     } finally {
       setBusyId(null);
     }
@@ -220,7 +250,7 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
                 const targetUser = item.user;
                 const reactionType = (item.type as ReactionType) || 'LIKE';
                 const isSelf = user?.id === targetUser.id;
-                const isFollowing = Boolean(followingMap[targetUser.id]);
+                const isFollowing = Boolean(followingMap[targetUser.id] ?? targetUser.isFollowing);
                 const isBusy = busyId === targetUser.id;
 
                 return (

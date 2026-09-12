@@ -30,7 +30,7 @@ export function CommentItem({
   const [showReplies, setShowReplies] = useState(true);
 
   return (
-    <div className="group/comment flex flex-col space-y-2">
+    <div id={`comment-${comment.id}`} className="group/comment flex flex-col space-y-2 scroll-mt-24 rounded-xl transition-all">
       {/* Main / Parent Comment */}
       <div className="flex items-start gap-2.5">
         <Link
@@ -122,7 +122,7 @@ export function CommentItem({
           {showReplies && replies.length > 0 && (
             <div className="mt-2.5 ml-2 sm:ml-3 pl-3 border-l-2 border-slate-200/80 dark:border-white/[0.1] space-y-2.5">
               {replies.map((reply) => (
-                <div key={reply.id} className="flex items-start gap-2">
+                <div key={reply.id} id={`comment-${reply.id}`} className="flex items-start gap-2 scroll-mt-24 rounded-xl transition-all">
                   <Link
                     href={`/profile/${encodeURIComponent(reply.author.username)}`}
                     onClick={onCloseParentModal}

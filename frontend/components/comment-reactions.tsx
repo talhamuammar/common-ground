@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { API_URL, ReactionType } from '../lib/api';
 import { useAuth } from './auth-provider';
 import { useAuthModal } from './auth-modal';
@@ -33,10 +33,14 @@ export function CommentReactions({
   const [likesCount, setLikesCount] = useState<number>(totalLikes || initialLikes.length || 0);
   const [reactionsList, setReactionsList] = useState(initialLikes);
   const [isDockOpen, setIsDockOpen] = useState(false);
+  const [dockOffset, setDockOffset] = useState<number>(0);
   const [hoveredReaction, setHoveredReaction] = useState<ReactionType | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressClickRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (user && initialLikes) {
@@ -51,6 +55,7 @@ export function CommentReactions({
   useEffect(() => {
     return () => {
       if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     };
   }, []);
 
@@ -72,28 +77,109 @@ export function CommentReactions({
       .map(([type]) => type as ReactionType);
   }, [reactionsList, likesCount, currentReaction]);
 
-  const handleMouseEnter = () => {
+  const updatePosition = useCallback(() => {
+    if (!containerRef.current) return;
+    const triggerRect = containerRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const estimatedDockWidth = 300;
+    const padding = 8;
+
+    let shift = 0;
+    if (triggerRect.left + estimatedDockWidth > viewportWidth - padding) {
+      shift = (viewportWidth - padding) - (triggerRect.left + estimatedDockWidth);
+    }
+    if (triggerRect.left + shift < padding) {
+      shift = padding - triggerRect.left;
+    }
+    setDockOffset(shift);
+  }, []);
+
+  const openDock = useCallback(() => {
     if (leaveTimeoutRef.current) {
       clearTimeout(leaveTimeoutRef.current);
       leaveTimeoutRef.current = null;
     }
+    updatePosition();
     setIsDockOpen(true);
+  }, [updatePosition]);
+
+  const handleMouseEnter = () => {
+    openDock();
   };
 
   const handleMouseLeave = () => {
     leaveTimeoutRef.current = setTimeout(() => {
       setIsDockOpen(false);
       setHoveredReaction(null);
-    }, 300);
+    }, 200);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    suppressClickRef.current = false;
+
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
+    longPressTimerRef.current = setTimeout(() => {
+      suppressClickRef.current = true;
+      try {
+        if ('vibrate' in navigator) navigator.vibrate(15);
+      } catch {}
+      openDock();
+    }, 280);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPosRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+    if (dx > 8 || dy > 8) {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  // Close dock on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsDockOpen(false);
+      }
+    }
+    if (isDockOpen) {
+      document.addEventListener('pointerdown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('pointerdown', handleClickOutside);
+    };
+  }, [isDockOpen]);
+
   const handleMainButtonClick = () => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+
     if (!token) {
       openAuthModal({
         title: 'React to this comment',
         description: 'Sign up or log in to react to comments.',
       });
       return;
+    }
+    if (isDockOpen) {
+      setIsDockOpen(false);
     }
     if (currentReaction) {
       handleRemoveReaction();
@@ -198,17 +284,27 @@ export function CommentReactions({
 
   return (
     <div className={`inline-flex items-center gap-1.5 ${className}`}>
-      {/* Reaction Trigger with 3D Floating Dock */}
+      {/* Reaction Trigger with Floating Dock */}
       <div
         ref={containerRef}
         className="relative inline-flex items-center"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
-        {/* Floating 3D Reaction Dock */}
-        {isDockOpen && (
+        {/* Floating Reaction Dock Anchor with Horizontal Clamping */}
+        <div
+          style={{
+            transform: `translateX(${dockOffset}px)`,
+          }}
+          className="absolute bottom-full left-0 mb-1.5 z-40 transition-transform duration-150 ease-out origin-bottom-left"
+        >
+          {/* Reaction Dock Bar */}
           <div
-            className="absolute bottom-full left-0 mb-1.5 z-40 flex items-center gap-1 p-1 rounded-full bg-white/95 dark:bg-[#1c1c1c]/95 backdrop-blur-md border border-slate-200/90 dark:border-white/10 shadow-xl animate-in zoom-in-95 slide-in-from-bottom-2 duration-150"
+            className={`flex items-center gap-1 p-1 rounded-full bg-white dark:bg-[#141414] border border-slate-200 dark:border-white/10 shadow-xl transition-all duration-150 ${
+              isDockOpen
+                ? 'opacity-100 scale-100 pointer-events-auto'
+                : 'opacity-0 scale-90 pointer-events-none'
+            }`}
             role="toolbar"
             aria-label="Comment reaction options"
           >
@@ -221,12 +317,13 @@ export function CommentReactions({
                   type="button"
                   onClick={() => handleSelectReaction(r.key)}
                   onMouseEnter={() => setHoveredReaction(r.key)}
-                  className={`relative grid size-7 place-items-center rounded-full transition-all duration-150 cursor-pointer ${
+                  onMouseLeave={() => setHoveredReaction(null)}
+                  className={`relative grid size-7 place-items-center transition-transform duration-150 cursor-pointer touch-manipulation ${
                     isHovered
-                      ? 'scale-125 z-10 -translate-y-1'
+                      ? 'scale-130 z-10 -translate-y-1'
                       : isSelected
-                      ? 'bg-slate-100 dark:bg-white/15 scale-105'
-                      : 'hover:scale-115'
+                      ? 'scale-110 -translate-y-0.5'
+                      : 'hover:scale-125'
                   }`}
                   aria-label={r.label}
                   title={r.label}
@@ -241,13 +338,17 @@ export function CommentReactions({
               );
             })}
           </div>
-        )}
+        </div>
 
         {/* Reaction Action Button */}
         <button
           type="button"
           onClick={handleMainButtonClick}
-          className={`inline-flex items-center gap-1 text-[12px] font-semibold transition-colors cursor-pointer select-none leading-none py-1 px-1.5 rounded hover:bg-slate-200/50 dark:hover:bg-white/[0.06] ${
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          className={`inline-flex items-center gap-1 text-[12px] font-semibold transition-colors cursor-pointer select-none leading-none py-1 px-1.5 rounded hover:bg-slate-200/50 dark:hover:bg-white/[0.06] touch-manipulation ${
             activeMeta
               ? activeMeta.activeColor
               : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'

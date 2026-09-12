@@ -22,12 +22,29 @@ export class NotificationsService {
       return null;
     }
 
-    // For like actions, if an unread notification from the same actor already exists on the same item, avoid duplicate spam
+    // For like/reaction actions, if an unread notification from the same actor already exists on the same item, update reaction type or avoid duplicate spam
     if (type === 'LIKE_POST' && postId) {
       const existing = await this.prisma.notification.findFirst({
         where: { recipientId, actorId, type, postId, read: false },
       });
       if (existing) {
+        if (content && existing.content !== content) {
+          return this.prisma.notification.update({
+            where: { id: existing.id },
+            data: { content, createdAt: new Date() },
+            include: {
+              actor: {
+                select: { id: true, username: true, fullName: true, avatarUrl: true, isVerified: true },
+              },
+              post: {
+                select: { id: true, content: true, imageUrl: true, imageUrls: true },
+              },
+              comment: {
+                select: { id: true, content: true },
+              },
+            },
+          });
+        }
         return existing;
       }
     } else if (type === 'LIKE_COMMENT' && commentId) {
@@ -35,6 +52,23 @@ export class NotificationsService {
         where: { recipientId, actorId, type, commentId, read: false },
       });
       if (existing) {
+        if (content && existing.content !== content) {
+          return this.prisma.notification.update({
+            where: { id: existing.id },
+            data: { content, createdAt: new Date() },
+            include: {
+              actor: {
+                select: { id: true, username: true, fullName: true, avatarUrl: true, isVerified: true },
+              },
+              post: {
+                select: { id: true, content: true, imageUrl: true, imageUrls: true },
+              },
+              comment: {
+                select: { id: true, content: true },
+              },
+            },
+          });
+        }
         return existing;
       }
     }
@@ -64,6 +98,12 @@ export class NotificationsService {
             content: true,
             imageUrl: true,
             imageUrls: true,
+          },
+        },
+        comment: {
+          select: {
+            id: true,
+            content: true,
           },
         },
       },
@@ -130,8 +170,33 @@ export class NotificationsService {
       this.prisma.notification.count({ where: { recipientId: userId, read: false } }),
     ]);
 
+    const resolvedItems = await Promise.all(
+      items.map(async (item) => {
+        if ((item.type === 'LIKE_POST' || item.type === 'LIKE_COMMENT') && !item.content) {
+          if (item.type === 'LIKE_POST' && item.postId) {
+            const like = await this.prisma.like.findUnique({
+              where: { userId_postId: { userId: item.actorId, postId: item.postId } },
+              select: { type: true },
+            });
+            if (like?.type) {
+              return { ...item, content: like.type };
+            }
+          } else if (item.type === 'LIKE_COMMENT' && item.commentId) {
+            const commentLike = await this.prisma.commentLike.findUnique({
+              where: { userId_commentId: { userId: item.actorId, commentId: item.commentId } },
+              select: { type: true },
+            });
+            if (commentLike?.type) {
+              return { ...item, content: commentLike.type };
+            }
+          }
+        }
+        return item;
+      }),
+    );
+
     return {
-      items,
+      items: resolvedItems,
       total,
       unreadCount,
     };

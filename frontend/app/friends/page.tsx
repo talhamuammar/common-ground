@@ -10,6 +10,7 @@ import { useAuthModal } from '../../components/auth-modal';
 import { UserAvatar } from '../../components/user-avatar';
 import { VerifiedBadge } from '../../components/verified-badge';
 import { RightSidebar } from '../../components/right-sidebar';
+import { broadcastFollowChange, SYNC_FOLLOW_EVENT, FollowChangeEvent } from '../../lib/realtime';
 
 type ConnectionUser = {
   id: number;
@@ -114,6 +115,20 @@ function FriendsPageContent() {
     };
   }, [token, tabParam]);
 
+  useEffect(() => {
+    function handleFollowEvent(e: Event) {
+      const customEvent = e as CustomEvent<FollowChangeEvent>;
+      if (customEvent.detail && customEvent.detail.targetUserId) {
+        setFollowingMap((prev) => ({
+          ...prev,
+          [customEvent.detail.targetUserId]: customEvent.detail.following,
+        }));
+      }
+    }
+    window.addEventListener(SYNC_FOLLOW_EVENT, handleFollowEvent);
+    return () => window.removeEventListener(SYNC_FOLLOW_EVENT, handleFollowEvent);
+  }, []);
+
   async function handleToggleFollow(targetId: number) {
     if (!token) {
       openAuthModal({
@@ -125,9 +140,11 @@ function FriendsPageContent() {
 
     const isCurrentlyFollowing = Boolean(followingMap[targetId]);
     const nextState = !isCurrentlyFollowing;
+    const delta = nextState ? 1 : -1;
 
     // Optimistic update
     setFollowingMap((prev) => ({ ...prev, [targetId]: nextState }));
+    broadcastFollowChange(delta, targetId, nextState);
     setActionId(targetId);
 
     try {
@@ -139,6 +156,7 @@ function FriendsPageContent() {
     } catch {
       // Revert
       setFollowingMap((prev) => ({ ...prev, [targetId]: isCurrentlyFollowing }));
+      broadcastFollowChange(-delta, targetId, isCurrentlyFollowing);
     } finally {
       setActionId(null);
     }

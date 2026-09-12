@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 import { Observable, map } from 'rxjs';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard, OptionalJwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostsService } from './posts.service';
@@ -96,9 +96,10 @@ export class PostsController {
     return this.posts.toggleCommentLike(request.user.userId, id, reactionType);
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('comments/:id/likes')
-  getCommentLikes(@Param('id', ParseIntPipe) id: number) {
-    return this.posts.getCommentLikes(id);
+  getCommentLikes(@Param('id', ParseIntPipe) id: number, @Req() request: { user?: AuthenticatedUser | null }) {
+    return this.posts.getCommentLikes(id, request.user?.userId);
   }
 
   @Get(':id')
@@ -127,9 +128,10 @@ export class PostsController {
     return this.posts.getComments(id);
   }
 
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id/likes')
-  getLikes(@Param('id', ParseIntPipe) id: number) {
-    return this.posts.getPostLikes(id);
+  getLikes(@Param('id', ParseIntPipe) id: number, @Req() request: { user?: AuthenticatedUser | null }) {
+    return this.posts.getPostLikes(id, request.user?.userId);
   }
 
   @Post(':id/like')
