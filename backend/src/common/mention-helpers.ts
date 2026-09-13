@@ -91,7 +91,7 @@ export async function attachMentionedUsers<T extends { content?: string | null }
     }
   }
 
-  return posts.map((p) => {
+  const enrichedPosts = posts.map((p) => {
     const postId = (p as any).id;
     const postMentions: MentionUserMeta[] = [...(notificationsByPostId.get(postId) || [])];
     const seen = new Set(postMentions.map((m) => m.username.toLowerCase()));
@@ -113,6 +113,15 @@ export async function attachMentionedUsers<T extends { content?: string | null }
 
     return { ...p, mentions: postMentions };
   });
+
+  // Automatically enrich comments and replies if present on the posts
+  for (const p of enrichedPosts) {
+    if ((p as any).comments && Array.isArray((p as any).comments)) {
+      (p as any).comments = await attachMentionedUsersToComments(prisma, (p as any).comments);
+    }
+  }
+
+  return enrichedPosts;
 }
 
 /**

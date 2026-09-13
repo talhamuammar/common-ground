@@ -126,6 +126,35 @@ export function FullscreenPostModal({
     setLikesCount(post._count?.likes ?? post.likes?.length ?? 0);
   }, [user, post.likes, post._count?.likes]);
 
+  // Keep comments in sync with post prop and fetch freshest comments with full mentions on open
+  useEffect(() => {
+    if (post.comments) {
+      setComments(post.comments);
+    }
+  }, [post.id, post.comments]);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchFreshComments() {
+      try {
+        const res = await fetch(`${API_URL}/posts/${post.id}/comments`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active && Array.isArray(data)) {
+          setComments(data);
+        }
+      } catch {
+        // Fallback to initial comments
+      }
+    }
+    fetchFreshComments();
+    return () => {
+      active = false;
+    };
+  }, [post.id, token]);
+
   // Real-time synchronization across all tabs and components
   useReactionsSync(
     useCallback(

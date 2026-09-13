@@ -740,13 +740,7 @@ export class PostsService {
    * Enrich posts with mentioned users metadata ({ username, fullName, isVerified })
    */
   async attachMentionedUsers<T extends { content?: string | null; comments?: any[] }>(posts: T[]) {
-    const enrichedPosts = await attachMentionedUsersHelper(this.prisma, posts);
-    for (const p of enrichedPosts) {
-      if ((p as any).comments && Array.isArray((p as any).comments) && (p as any).comments.length > 0) {
-        (p as any).comments = await attachMentionedUsersToComments(this.prisma, (p as any).comments);
-      }
-    }
-    return enrichedPosts;
+    return attachMentionedUsersHelper(this.prisma, posts);
   }
 }
 

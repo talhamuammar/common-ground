@@ -98,6 +98,36 @@ export function PostCard({
     setLikesCount(post._count?.likes ?? post.likes?.length ?? 0);
   }, [user, post.likes, post._count?.likes]);
 
+  // Keep comments in sync with post prop and fetch latest on drawer open
+  useEffect(() => {
+    if (post.comments) {
+      setComments(post.comments);
+    }
+  }, [post.id, post.comments]);
+
+  useEffect(() => {
+    if (!showComments) return;
+    let active = true;
+    async function fetchDrawerComments() {
+      try {
+        const res = await fetch(`${API_URL}/posts/${post.id}/comments`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active && Array.isArray(data)) {
+          setComments(data);
+        }
+      } catch {
+        // Fallback to initial comments
+      }
+    }
+    fetchDrawerComments();
+    return () => {
+      active = false;
+    };
+  }, [post.id, showComments, token]);
+
   // Real-time synchronization across all tabs and components
   useReactionsSync(
     useCallback(

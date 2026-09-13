@@ -312,7 +312,8 @@ export class UsersService {
       throw new NotFoundException(`No post found for ${type}`);
     }
 
-    return post;
+    const [enriched] = await attachMentionedUsers(this.prisma, [post]);
+    return enriched;
   }
 
   private assertDifferentUsers(userId: number, targetId: number) {
