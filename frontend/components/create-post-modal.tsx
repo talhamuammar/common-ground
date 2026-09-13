@@ -260,7 +260,7 @@ export function CreatePostModal({
     } finally {
       setLoading(false);
     }
-  }, [content, images, token, onPostCreated, onClose, mentionedUsers, setMentionedUsers]);
+  }, [content, images, token, onPostCreated, onClose, activeMentions, setMentionedUsers]);
 
   // Keyboard shortcut (Escape to close, Cmd/Ctrl + Enter to publish)
   useEffect(() => {

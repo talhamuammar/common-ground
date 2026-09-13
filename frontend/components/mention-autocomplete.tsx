@@ -118,7 +118,10 @@ function getCaretCoordinates(
     div.style.overflowWrap = 'break-word';
 
     properties.forEach((prop) => {
-      div.style[prop as any] = style[prop as any];
+      const val = style[prop as unknown as keyof CSSStyleDeclaration];
+      if (typeof val === 'string') {
+        (div.style as unknown as Record<string, string>)[prop] = val;
+      }
     });
 
     const textBefore = element.value.substring(0, position);
