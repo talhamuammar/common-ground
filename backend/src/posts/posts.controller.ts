@@ -50,7 +50,20 @@ export class PostsController {
       const results = await Promise.all(uploadPromises);
       imageUrls.push(...results);
     }
-    return this.posts.create(request.user.userId, text, imageUrls);
+    let mentionedList: string[] = [];
+    if (Array.isArray(dto.mentionedUsernames)) {
+      mentionedList = dto.mentionedUsernames;
+    } else if (typeof dto.mentionedUsernames === 'string') {
+      try {
+        const parsed = JSON.parse(dto.mentionedUsernames);
+        if (Array.isArray(parsed)) mentionedList = parsed;
+        else if (typeof parsed === 'string') mentionedList = [parsed];
+      } catch {
+        mentionedList = [dto.mentionedUsernames];
+      }
+    }
+
+    return this.posts.create(request.user.userId, text, imageUrls, mentionedList);
   }
 
   @Get()
@@ -114,12 +127,26 @@ export class PostsController {
     @Param('id', ParseIntPipe) id: number,
     @Body('content') content: string,
     @Body('parentId') parentId?: number,
+    @Body('mentionedUsernames') mentionedUsernames?: string[] | string,
   ) {
+    let parsedMentions: string[] = [];
+    if (Array.isArray(mentionedUsernames)) {
+      parsedMentions = mentionedUsernames;
+    } else if (typeof mentionedUsernames === 'string' && mentionedUsernames.trim()) {
+      try {
+        const parsed = JSON.parse(mentionedUsernames);
+        if (Array.isArray(parsed)) parsedMentions = parsed;
+      } catch {
+        parsedMentions = [mentionedUsernames.trim()];
+      }
+    }
+
     return this.posts.addComment(
       request.user.userId,
       id,
       content,
       parentId ? Number(parentId) : undefined,
+      parsedMentions,
     );
   }
 

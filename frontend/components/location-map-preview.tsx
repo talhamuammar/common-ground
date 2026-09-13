@@ -149,25 +149,25 @@ export function LocationMapPreview({
 
       {/* Floating Info Pill */}
       {showDetails && (
-        <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[10] flex items-center justify-between gap-2 rounded-xl bg-black/80 dark:bg-black/90 px-3 py-2 text-xs text-white backdrop-blur-md border border-white/10">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="absolute bottom-2.5 left-2.5 right-2.5 z-[10] flex items-center justify-between gap-2 rounded-xl bg-black/85 dark:bg-black/90 px-3 py-2 text-xs text-white backdrop-blur-md border border-white/15 shadow-md">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             {icon === 'home' ? (
-              <Home size={14} className={color === 'amber' ? 'text-amber-400 shrink-0' : 'text-accent-fg shrink-0'} />
+              <Home size={14} className={color === 'amber' ? 'text-amber-400 shrink-0' : 'text-emerald-400 shrink-0'} />
             ) : (
-              <MapPin size={14} className="text-accent-fg shrink-0" />
+              <MapPin size={14} className="text-emerald-400 shrink-0" />
             )}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               {label && (
-                <span className="block text-[10px] text-slate-400 font-normal leading-tight">{label}</span>
+                <span className="block text-[10px] text-slate-300 dark:text-slate-400 font-normal leading-tight">{label}</span>
               )}
-              <span className="font-semibold truncate text-[11px] sm:text-xs block">{location}</span>
+              <span className="font-semibold truncate text-[11px] sm:text-xs block text-white">{location}</span>
             </div>
           </div>
           <a
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1 text-[11px] font-medium text-accent-fg hover:underline shrink-0"
+            className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 hover:underline shrink-0 transition-colors"
           >
             <span>Open Map</span>
             <ExternalLink size={11} />

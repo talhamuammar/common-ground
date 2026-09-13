@@ -16,6 +16,7 @@ import { useAuthModal } from './auth-modal';
 import { PostPhotoCarousel } from './post-photo-carousel';
 import { FormattedText } from './formatted-text';
 import { CommentItem } from './comment-item';
+import { useMentionAutocomplete, MentionSuggestions, renderEditorBackdrop } from './mention-autocomplete';
 
 export function PostCard({
   post,
@@ -53,6 +54,40 @@ export function PostCard({
   const commentInputRef = useRef<HTMLInputElement | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState('');
+
+  const {
+    isOpen: isMentionOpen,
+    users: mentionUsers,
+    loading: mentionLoading,
+    selectedIndex: mentionSelectedIndex,
+    query: mentionQuery,
+    coordinates: mentionCoordinates,
+    setSelectedIndex: setMentionSelectedIndex,
+    selectUser: selectMentionUser,
+    handleKeyDown: handleMentionKeyDown,
+    checkMentionTrigger,
+    mentionedUsers,
+    setMentionedUsers,
+    close: closeMention,
+  } = useMentionAutocomplete({
+    content: commentText,
+    setContent: setCommentText,
+    inputRef: commentInputRef,
+  });
+
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+
+  const activeMentions = React.useMemo(() => {
+    const trimmed = commentText.trim();
+    if (!trimmed) return [];
+    return mentionedUsers.filter((u) => {
+      const name = u.fullName || u.username;
+      return (
+        trimmed.toLowerCase().includes(name.toLowerCase()) ||
+        trimmed.toLowerCase().includes(`@${u.username.toLowerCase()}`)
+      );
+    });
+  }, [mentionedUsers, commentText]);
 
   useEffect(() => {
     if (user && post.likes) {
@@ -229,6 +264,10 @@ export function PostCard({
       if (prev.startsWith(mention)) return prev;
       return `${mention}${prev}`;
     });
+    setMentionedUsers((prev) => {
+      if (prev.some((u) => u.username.toLowerCase() === username.toLowerCase())) return prev;
+      return [...prev, { id: 0, username, fullName: null, avatarUrl: null }];
+    });
     setTimeout(() => {
       commentInputRef.current?.focus();
     }, 50);
@@ -237,6 +276,7 @@ export function PostCard({
   const handleCancelReply = () => {
     if (replyingTo) {
       setCommentText((prev) => prev.replace(new RegExp(`^@${replyingTo.username}\\s*`), ''));
+      setMentionedUsers((prev) => prev.filter((u) => u.username.toLowerCase() !== replyingTo.username.toLowerCase()));
       setReplyingTo(null);
     }
   };
@@ -255,6 +295,11 @@ export function PostCard({
     setSubmittingComment(true);
     setCommentError('');
     try {
+      const activeUsernames = Array.from(new Set(mentionedUsers.map((u) => u.username)));
+      if (replyingTo && !activeUsernames.some((u) => u.toLowerCase() === replyingTo.username.toLowerCase())) {
+        activeUsernames.push(replyingTo.username);
+      }
+
       const response = await fetch(`${API_URL}/posts/${post.id}/comments`, {
         method: 'POST',
         headers: {
@@ -264,6 +309,7 @@ export function PostCard({
         body: JSON.stringify({
           content: commentText.trim(),
           parentId: replyingTo?.commentId,
+          mentionedUsernames: activeUsernames,
         }),
       });
       const payload: unknown = await response.json();
@@ -290,6 +336,8 @@ export function PostCard({
         setComments((prev) => [...prev, createdComment]);
       }
       setCommentText('');
+      setMentionedUsers([]);
+      closeMention();
       setReplyingTo(null);
     } catch (cause) {
       setCommentError(cause instanceof Error ? cause.message : 'Could not post comment');
@@ -347,7 +395,6 @@ export function PostCard({
                 <span>{post.author.fullName || post.author.username}</span>
                 {post.author.isVerified && <VerifiedBadge size={15} />}
               </Link>
-              <span className="text-xs sm:text-[13.5px] text-slate-400 dark:text-slate-500">@{post.author.username}</span>
             </div>
             <p className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
               <Link
@@ -375,7 +422,7 @@ export function PostCard({
       {/* Post Text Content */}
       {post.content && post.content.trim().length > 0 && (
         <div className="my-3.5 text-[15px] sm:text-[16px] leading-relaxed text-slate-800 dark:text-slate-100 [overflow-wrap:anywhere]">
-          <FormattedText content={post.content} onTagClick={onTagClick} />
+          <FormattedText content={post.content} mentions={post.mentions} onTagClick={onTagClick} />
         </div>
       )}
 
@@ -467,22 +514,70 @@ export function PostCard({
                 </div>
               )}
 
-              <form onSubmit={handleAddComment} className="flex items-center gap-2.5">
+              <form onSubmit={handleAddComment} className="flex items-center gap-2.5 relative">
+                <MentionSuggestions
+                  isOpen={isMentionOpen}
+                  users={mentionUsers}
+                  loading={mentionLoading}
+                  selectedIndex={mentionSelectedIndex}
+                  query={mentionQuery}
+                  coordinates={mentionCoordinates}
+                  onSelectUser={selectMentionUser}
+                  onHoverIndex={setMentionSelectedIndex}
+                  placement="top"
+                />
+
                 <UserAvatar
                   src={user?.avatarUrl}
                   name={user?.fullName || user?.username || 'U'}
                   className="size-8 rounded-full text-xs shrink-0"
                 />
                 <div className="flex flex-1 items-center gap-2 rounded-xl border border-transparent bg-slate-100/80 px-3 py-1.5 focus-within:bg-white focus-within:ring-1 focus-within:ring-accent/30 dark:border-white/[0.08] dark:bg-[#151515] dark:focus-within:bg-[#1c1c1c] dark:focus-within:ring-accent/30 transition-all">
-                  <input
-                    ref={commentInputRef}
-                    type="text"
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    placeholder={replyingTo ? `Reply to @${replyingTo.username}…` : 'Write a thoughtful comment or reply…'}
-                    className="w-full bg-transparent text-sm placeholder:text-sm text-slate-800 placeholder-slate-400 outline-none dark:text-slate-100 dark:placeholder-slate-500"
-                    maxLength={300}
-                  />
+                  <div className="relative flex-1 flex items-center min-w-0">
+                    {/* Highlight backdrop: shows mentions in bold text in real-time inside the comment box */}
+                    <div
+                      ref={backdropRef}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-pre font-sans text-sm text-slate-800 dark:text-slate-100 select-none p-0 m-0 border-0"
+                    >
+                      {renderEditorBackdrop(commentText, activeMentions)}
+                    </div>
+
+                    <input
+                      ref={commentInputRef}
+                      type="text"
+                      value={commentText}
+                      onChange={(e) => {
+                        setCommentText(e.target.value);
+                        checkMentionTrigger();
+                        if (backdropRef.current) {
+                          backdropRef.current.scrollLeft = e.target.scrollLeft;
+                        }
+                      }}
+                      onSelect={(e) => {
+                        if (backdropRef.current) {
+                          backdropRef.current.scrollLeft = (e.target as HTMLInputElement).scrollLeft;
+                        }
+                      }}
+                      onScroll={(e) => {
+                        if (backdropRef.current) {
+                          backdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        const handled = handleMentionKeyDown(e);
+                        if (handled) return;
+                      }}
+                      placeholder={replyingTo ? `Reply to @${replyingTo.username}…` : 'Write a thoughtful comment or reply…'}
+                      className={`relative w-full bg-transparent font-sans text-sm p-0 m-0 border-0 outline-none ${
+                        (activeMentions.length > 0 || /@[a-zA-Z0-9_]+/i.test(commentText)) && commentText
+                          ? 'text-transparent caret-slate-900 dark:caret-white'
+                          : 'text-slate-800 dark:text-slate-100'
+                      } placeholder:text-slate-400 dark:placeholder:text-slate-500`}
+                      maxLength={300}
+                    />
+                  </div>
+
                   <button
                     type="submit"
                     disabled={submittingComment || !commentText.trim()}
@@ -493,6 +588,30 @@ export function PostCard({
                   </button>
                 </div>
               </form>
+
+              {/* Active Mentions Chips */}
+              {activeMentions.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-1.5 px-0.5 animate-in fade-in duration-150">
+                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    Mentioned:
+                  </span>
+                  {activeMentions.map((u) => (
+                    <span
+                      key={u.username}
+                      className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full bg-accent/10 dark:bg-accent/20 border border-accent/25 text-accent-fg text-[11px] font-bold shadow-xs"
+                    >
+                      <UserAvatar
+                        src={mediaUrl(u.avatarUrl)}
+                        name={u.fullName || u.username}
+                        className="size-3.5 rounded-full text-[8px]"
+                        sizes="14px"
+                      />
+                      <span>{u.fullName || u.username}</span>
+                      {u.isVerified && <VerifiedBadge size={10} />}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3 text-center dark:border-white/[0.08] dark:bg-[#151515]">

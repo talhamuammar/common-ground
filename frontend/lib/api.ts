@@ -7,11 +7,18 @@ export type PostComment = {
   parentId?: number | null;
   author: { id: number; username: string; fullName?: string | null; avatarUrl: string | null; isVerified?: boolean };
   likes?: { userId: number; type?: string }[];
+  mentions?: MentionInfo[];
   replies?: PostComment[];
   _count?: { likes: number; replies?: number };
 };
 
 export type ReactionType = 'LIKE' | 'LOVE' | 'CELEBRATE' | 'LAUGH' | 'WOW' | 'SAD' | 'SUPPORT' | 'BITING_LIP';
+
+export type MentionInfo = {
+  username: string;
+  fullName: string | null;
+  isVerified?: boolean;
+};
 
 export type Post = {
   id: number;
@@ -22,6 +29,7 @@ export type Post = {
   author: { id: number; username: string; fullName?: string | null; avatarUrl: string | null; isVerified?: boolean };
   comments?: PostComment[];
   likes?: { userId: number; type?: string }[];
+  mentions?: MentionInfo[];
   _count?: { comments: number; likes: number };
 };
 

@@ -18,7 +18,7 @@ export interface NotificationItem {
   id: number;
   recipientId: number;
   actorId: number;
-  type: 'LIKE_POST' | 'LIKE_COMMENT' | 'COMMENT_POST' | 'REPLY_COMMENT' | 'FOLLOW';
+  type: 'LIKE_POST' | 'LIKE_COMMENT' | 'COMMENT_POST' | 'REPLY_COMMENT' | 'FOLLOW' | 'MENTION_POST' | 'MENTION_COMMENT';
   postId: number | null;
   commentId: number | null;
   content: string | null;
@@ -368,6 +368,7 @@ export function NotificationsDropdown() {
                 const isComment = item.type === 'COMMENT_POST';
                 const isReply = item.type === 'REPLY_COMMENT';
                 const isFollow = item.type === 'FOLLOW';
+                const isMention = item.type === 'MENTION_POST' || item.type === 'MENTION_COMMENT';
 
                 return (
                   <div
@@ -404,8 +405,16 @@ export function NotificationsDropdown() {
                           {isComment && 'commented on your post'}
                           {isReply && 'replied to your comment'}
                           {isFollow && 'started following you'}
+                          {isMention && (item.type === 'MENTION_COMMENT' ? 'mentioned you in a comment' : 'mentioned you in a post')}
                         </span>
                       </p>
+
+                      {/* For mentions: show snippet of comment or post */}
+                      {(item.type === 'MENTION_POST' || item.type === 'MENTION_COMMENT') && (item.comment?.content || item.post?.content || item.content) && (
+                        <p className="mt-1 line-clamp-2 rounded-lg bg-slate-100/80 dark:bg-white/[0.05] px-2.5 py-1 text-xs text-slate-800 dark:text-slate-200">
+                          “{item.comment?.content || item.post?.content || item.content}”
+                        </p>
+                      )}
 
                       {/* For LIKE_COMMENT: show the comment that was reacted to */}
                       {item.type === 'LIKE_COMMENT' && item.comment?.content && (

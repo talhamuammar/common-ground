@@ -63,10 +63,21 @@ export function ReactionPicker({
   const [hoveredReaction, setHoveredReaction] = useState<ReactionType | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const suppressClickRef = useRef<boolean>(false);
+  const isTouchInteractionRef = useRef<boolean>(false);
+
+  // Clean up timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+      if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    };
+  }, []);
 
   const activeMeta = currentReaction ? getReactionMeta(currentReaction) : null;
 
@@ -126,31 +137,80 @@ export function ReactionPicker({
       clearTimeout(leaveTimeoutRef.current);
       leaveTimeoutRef.current = null;
     }
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
     updatePosition();
     setIsDockOpen(true);
   }, [disabled, updatePosition]);
 
-  const handleMouseEnter = () => {
-    openDock();
-  };
-
-  const handleMouseMove = () => {
-    if (!isDockOpen) {
-      openDock();
+  const closeDock = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
     }
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    setIsDockOpen(false);
+    setHoveredReaction(null);
+  }, []);
+
+  const handleButtonMouseEnter = () => {
+    if (disabled || isTouchInteractionRef.current) return;
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    hoverTimeoutRef.current = setTimeout(() => {
+      openDock();
+    }, 250);
   };
 
-  const handleMouseLeave = () => {
-    if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
+  const handleButtonMouseLeave = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+    }
     leaveTimeoutRef.current = setTimeout(() => {
       setIsDockOpen(false);
       setHoveredReaction(null);
-    }, 200);
+    }, 250);
+  };
+
+  const handleDockMouseEnter = () => {
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+  };
+
+  const handleDockMouseLeave = () => {
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+    }
+    leaveTimeoutRef.current = setTimeout(() => {
+      setIsDockOpen(false);
+      setHoveredReaction(null);
+    }, 250);
   };
 
   // Touch and Long-press handlers for mobile phone browser
   const handleTouchStart = (e: React.TouchEvent) => {
     if (disabled) return;
+    isTouchInteractionRef.current = true;
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
     suppressClickRef.current = false;
@@ -186,15 +246,10 @@ export function ReactionPicker({
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    setTimeout(() => {
+      isTouchInteractionRef.current = false;
+    }, 400);
   };
-
-  // Clean up timer on unmount
-  useEffect(() => {
-    return () => {
-      if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    };
-  }, []);
 
   // Handle outside click to close reaction dock
   useEffect(() => {
@@ -215,6 +270,11 @@ export function ReactionPicker({
     e.stopPropagation();
     if (disabled) return;
 
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+
     // If click was triggered right after a long-press opened the dock, ignore it
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -222,7 +282,7 @@ export function ReactionPicker({
     }
 
     if (isDockOpen) {
-      setIsDockOpen(false);
+      closeDock();
     }
     if (currentReaction) {
       onRemoveReaction();
@@ -234,8 +294,7 @@ export function ReactionPicker({
   function handlePick(e: React.MouseEvent, type: ReactionType) {
     e.stopPropagation();
     if (disabled) return;
-    if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
-    setIsDockOpen(false);
+    closeDock();
     if (currentReaction === type) {
       onRemoveReaction();
     } else {
@@ -249,14 +308,13 @@ export function ReactionPicker({
       <div
         ref={containerRef}
         className="group/picker relative inline-flex items-center"
-        onMouseEnter={handleMouseEnter}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
       >
         {/* Floating Reactions Dock on Hover / Touch with Viewport Clamping */}
         <div
           role="dialog"
           aria-label="Reaction options"
+          onMouseEnter={handleDockMouseEnter}
+          onMouseLeave={handleDockMouseLeave}
           style={{
             transform: `translateX(${dockOffset}px) ${
               isDockOpen
@@ -307,10 +365,12 @@ export function ReactionPicker({
           })}
         </div>
 
-        {/* Main Reaction Trigger Button */}
+        {/* Main Reaction Trigger Button: Hover triggers only with 250ms deliberate delay */}
         <button
           type="button"
           onClick={handleMainButtonClick}
+          onMouseEnter={handleButtonMouseEnter}
+          onMouseLeave={handleButtonMouseLeave}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}

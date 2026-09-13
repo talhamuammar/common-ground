@@ -54,10 +54,10 @@ export function CommentItem({
                 <Link
                   href={`/profile/${encodeURIComponent(comment.author.username)}`}
                   onClick={onCloseParentModal}
-                  className="group/name text-[13px] sm:text-sm font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1 shrink-0"
+                  className="group/name text-sm sm:text-[14px] font-bold text-slate-900 dark:text-white inline-flex items-center gap-1 shrink-0"
                 >
                   <span className="group-hover/name:underline">{comment.author.fullName || comment.author.username}</span>
-                  {comment.author.isVerified && <VerifiedBadge size={12} />}
+                  {comment.author.isVerified && <VerifiedBadge size={13} />}
                 </Link>
                 <span className="text-xs text-slate-400 dark:text-slate-500 font-normal truncate">
                   @{comment.author.username}
@@ -69,9 +69,10 @@ export function CommentItem({
             </div>
 
             {/* Comment Text with Mentions and Hashtags */}
-            <p className="text-slate-700 dark:text-slate-300 text-[13.5px] sm:text-[14px] leading-relaxed [overflow-wrap:anywhere]">
+            <p className="text-slate-700 dark:text-slate-300 text-[13px] sm:text-[13.5px] leading-relaxed [overflow-wrap:anywhere]">
               <FormattedText
                 content={comment.content}
+                mentions={comment.mentions}
                 onTagClick={onTagClick}
                 onMentionClick={onCloseParentModal}
               />
@@ -143,10 +144,10 @@ export function CommentItem({
                           <Link
                             href={`/profile/${encodeURIComponent(reply.author.username)}`}
                             onClick={onCloseParentModal}
-                            className="group/name text-xs sm:text-[13px] font-semibold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1 shrink-0"
+                            className="group/name text-[12.5px] sm:text-[13px] font-bold text-slate-900 dark:text-white inline-flex items-center gap-1 shrink-0"
                           >
                             <span className="group-hover/name:underline">{reply.author.fullName || reply.author.username}</span>
-                            {reply.author.isVerified && <VerifiedBadge size={11} />}
+                            {reply.author.isVerified && <VerifiedBadge size={12} />}
                           </Link>
                           <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal truncate">
                             @{reply.author.username}
@@ -157,9 +158,10 @@ export function CommentItem({
                         </time>
                       </div>
 
-                      <p className="text-slate-700 dark:text-slate-300 text-xs sm:text-[13px] leading-relaxed [overflow-wrap:anywhere]">
+                      <p className="text-slate-700 dark:text-slate-300 text-xs sm:text-[12.5px] leading-relaxed [overflow-wrap:anywhere]">
                         <FormattedText
                           content={reply.content}
+                          mentions={reply.mentions}
                           onTagClick={onTagClick}
                           onMentionClick={onCloseParentModal}
                         />

@@ -50,7 +50,7 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'LIKES' | 'COMMENTS' | 'FOLLOWS'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'LIKES' | 'COMMENTS' | 'FOLLOWS' | 'MENTIONS'>('ALL');
 
   const fetchNotifications = useCallback(async () => {
     if (!token) {
@@ -195,6 +195,7 @@ export default function NotificationsPage() {
     if (filter === 'LIKES') return item.type === 'LIKE_POST' || item.type === 'LIKE_COMMENT';
     if (filter === 'COMMENTS') return item.type === 'COMMENT_POST' || item.type === 'REPLY_COMMENT';
     if (filter === 'FOLLOWS') return item.type === 'FOLLOW';
+    if (filter === 'MENTIONS') return item.type === 'MENTION_POST' || item.type === 'MENTION_COMMENT';
     return true;
   });
 
@@ -310,6 +311,18 @@ export default function NotificationsPage() {
               <UserPlus size={12} className={filter === 'FOLLOWS' ? '' : 'text-emerald-500'} />
               <span>Follows</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setFilter('MENTIONS')}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                filter === 'MENTIONS'
+                  ? 'bg-accent text-white font-semibold shadow-xs'
+                  : 'bg-white dark:bg-[#111] text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-white/[0.04]'
+              }`}
+            >
+              <span className={`text-xs font-black leading-none ${filter === 'MENTIONS' ? 'text-white' : 'text-purple-500'}`}>@</span>
+              <span>Mentions</span>
+            </button>
           </div>
 
           {/* List Area */}
@@ -351,6 +364,8 @@ export default function NotificationsPage() {
                   <ReactionIconRenderer type="LOVE" size={24} />
                 ) : filter === 'FOLLOWS' ? (
                   <UserPlus size={22} className="text-emerald-500" />
+                ) : filter === 'MENTIONS' ? (
+                  <span className="text-2xl font-black text-purple-500">@</span>
                 ) : filter === 'UNREAD' ? (
                   <CheckCheck size={22} className="text-accent-fg" />
                 ) : (
@@ -366,11 +381,15 @@ export default function NotificationsPage() {
                   ? 'No comments yet'
                   : filter === 'FOLLOWS'
                   ? 'No new followers yet'
+                  : filter === 'MENTIONS'
+                  ? 'No mentions yet'
                   : 'No notifications yet'}
               </h2>
               <p className="mt-1 text-xs text-slate-400 dark:text-slate-500 max-w-sm mx-auto">
                 {filter === 'UNREAD'
                   ? 'No unread notifications right now. Check back later!'
+                  : filter === 'MENTIONS'
+                  ? 'When other members mention you with @username in their posts, they will show up here.'
                   : 'Interactions from other members of Common Ground will appear right here.'}
               </p>
             </div>
@@ -381,6 +400,7 @@ export default function NotificationsPage() {
                 const isComment = item.type === 'COMMENT_POST';
                 const isReply = item.type === 'REPLY_COMMENT';
                 const isFollow = item.type === 'FOLLOW';
+                const isMention = item.type === 'MENTION_POST' || item.type === 'MENTION_COMMENT';
 
                 return (
                   <div
@@ -425,8 +445,16 @@ export default function NotificationsPage() {
                             {isComment && 'commented on your post'}
                             {isReply && 'replied to your comment'}
                             {isFollow && 'started following you'}
+                            {isMention && (item.type === 'MENTION_COMMENT' ? 'mentioned you in a comment' : 'mentioned you in a post')}
                           </span>
                         </div>
+
+                        {/* For mentions: show snippet of comment or post */}
+                        {(item.type === 'MENTION_POST' || item.type === 'MENTION_COMMENT') && (item.comment?.content || item.post?.content || item.content) && (
+                          <div className="mt-1.5 rounded-xl border border-slate-200/60 dark:border-white/[0.06] bg-slate-50/70 dark:bg-white/[0.02] p-2 text-xs text-slate-700 dark:text-slate-300 italic">
+                            “{item.comment?.content || item.post?.content || item.content}”
+                          </div>
+                        )}
 
                         {/* For LIKE_COMMENT: show which comment was reacted to */}
                         {item.type === 'LIKE_COMMENT' && item.comment?.content && (

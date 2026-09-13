@@ -37,10 +37,12 @@ export function CommentReactions({
   const [hoveredReaction, setHoveredReaction] = useState<ReactionType | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const leaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const suppressClickRef = useRef<boolean>(false);
+  const isTouchInteractionRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (user && initialLikes) {
@@ -51,9 +53,10 @@ export function CommentReactions({
     setLikesCount(totalLikes || initialLikes.length || 0);
   }, [user, initialLikes, totalLikes]);
 
-  // Clean up timeout on unmount
+  // Clean up timeouts on unmount
   useEffect(() => {
     return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
       if (leaveTimeoutRef.current) clearTimeout(leaveTimeoutRef.current);
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     };
@@ -99,22 +102,80 @@ export function CommentReactions({
       clearTimeout(leaveTimeoutRef.current);
       leaveTimeoutRef.current = null;
     }
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
     updatePosition();
     setIsDockOpen(true);
   }, [updatePosition]);
 
-  const handleMouseEnter = () => {
-    openDock();
+  const closeDock = useCallback(() => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    setIsDockOpen(false);
+    setHoveredReaction(null);
+  }, []);
+
+  // Hover triggers ONLY on the Like/React button itself, with an intentional 250ms delay
+  const handleButtonMouseEnter = () => {
+    if (isTouchInteractionRef.current) return;
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    hoverTimeoutRef.current = setTimeout(() => {
+      openDock();
+    }, 250);
   };
 
-  const handleMouseLeave = () => {
+  const handleButtonMouseLeave = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+    }
     leaveTimeoutRef.current = setTimeout(() => {
       setIsDockOpen(false);
       setHoveredReaction(null);
-    }, 200);
+    }, 250);
+  };
+
+  // Hover handlers for the floating dock so user can glide cursor into the dock seamlessly
+  const handleDockMouseEnter = () => {
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+      leaveTimeoutRef.current = null;
+    }
+  };
+
+  const handleDockMouseLeave = () => {
+    if (leaveTimeoutRef.current) {
+      clearTimeout(leaveTimeoutRef.current);
+    }
+    leaveTimeoutRef.current = setTimeout(() => {
+      setIsDockOpen(false);
+      setHoveredReaction(null);
+    }, 250);
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    isTouchInteractionRef.current = true;
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
     suppressClickRef.current = false;
@@ -148,6 +209,9 @@ export function CommentReactions({
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    setTimeout(() => {
+      isTouchInteractionRef.current = false;
+    }, 400);
   };
 
   // Close dock on outside click
@@ -179,7 +243,7 @@ export function CommentReactions({
       return;
     }
     if (isDockOpen) {
-      setIsDockOpen(false);
+      closeDock();
     }
     if (currentReaction) {
       handleRemoveReaction();
@@ -197,8 +261,7 @@ export function CommentReactions({
       return;
     }
 
-    setIsDockOpen(false);
-    setHoveredReaction(null);
+    closeDock();
 
     const prevReaction = currentReaction;
     const prevCount = likesCount;
@@ -242,8 +305,7 @@ export function CommentReactions({
   const handleRemoveReaction = async () => {
     if (!token || !currentReaction) return;
 
-    setIsDockOpen(false);
-    setHoveredReaction(null);
+    closeDock();
 
     const prevReaction = currentReaction;
     const prevCount = likesCount;
@@ -288,62 +350,62 @@ export function CommentReactions({
       <div
         ref={containerRef}
         className="relative inline-flex items-center"
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
       >
-        {/* Floating Reaction Dock Anchor with Horizontal Clamping */}
-        <div
-          style={{
-            transform: `translateX(${dockOffset}px)`,
-          }}
-          className="absolute bottom-full left-0 mb-1.5 z-40 transition-transform duration-150 ease-out origin-bottom-left"
-        >
-          {/* Reaction Dock Bar */}
+        {/* Floating Reaction Dock Anchor: Only mounted when open so it never blocks comment text/mentions */}
+        {isDockOpen && (
           <div
-            className={`flex items-center gap-1 p-1 rounded-full bg-white dark:bg-[#141414] border border-slate-200 dark:border-white/10 shadow-xl transition-all duration-150 ${
-              isDockOpen
-                ? 'opacity-100 scale-100 pointer-events-auto'
-                : 'opacity-0 scale-90 pointer-events-none'
-            }`}
-            role="toolbar"
-            aria-label="Comment reaction options"
+            style={{
+              transform: `translateX(${dockOffset}px)`,
+            }}
+            onMouseEnter={handleDockMouseEnter}
+            onMouseLeave={handleDockMouseLeave}
+            className="absolute bottom-full left-0 mb-1.5 z-40 origin-bottom-left animate-in fade-in zoom-in-95 duration-150 after:absolute after:-bottom-2.5 after:left-0 after:right-0 after:h-3 after:content-['']"
           >
-            {REACTIONS.map((r) => {
-              const isHovered = hoveredReaction === r.key;
-              const isSelected = currentReaction === r.key;
-              return (
-                <button
-                  key={r.key}
-                  type="button"
-                  onClick={() => handleSelectReaction(r.key)}
-                  onMouseEnter={() => setHoveredReaction(r.key)}
-                  onMouseLeave={() => setHoveredReaction(null)}
-                  className={`relative grid size-7 place-items-center transition-transform duration-150 cursor-pointer touch-manipulation ${
-                    isHovered
-                      ? 'scale-130 z-10 -translate-y-1'
-                      : isSelected
-                      ? 'scale-110 -translate-y-0.5'
-                      : 'hover:scale-125'
-                  }`}
-                  aria-label={r.label}
-                  title={r.label}
-                >
-                  <ReactionIconRenderer type={r.key} size={20} />
-                  {isHovered && (
-                    <span className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-md bg-slate-900 dark:bg-black text-[9px] font-semibold text-white pointer-events-none whitespace-nowrap shadow-md animate-in fade-in duration-100">
-                      {r.label}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            {/* Reaction Dock Bar */}
+            <div
+              className="flex items-center gap-1 p-1 rounded-full bg-white dark:bg-[#141414] border border-slate-200 dark:border-white/10 shadow-xl pointer-events-auto"
+              role="toolbar"
+              aria-label="Comment reaction options"
+            >
+              {REACTIONS.map((r) => {
+                const isHovered = hoveredReaction === r.key;
+                const isSelected = currentReaction === r.key;
+                return (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => handleSelectReaction(r.key)}
+                    onMouseEnter={() => setHoveredReaction(r.key)}
+                    onMouseLeave={() => setHoveredReaction(null)}
+                    className={`relative grid size-7 place-items-center transition-transform duration-150 cursor-pointer touch-manipulation ${
+                      isHovered
+                        ? 'scale-130 z-10 -translate-y-1'
+                        : isSelected
+                        ? 'scale-110 -translate-y-0.5'
+                        : 'hover:scale-125'
+                    }`}
+                    aria-label={r.label}
+                    title={r.label}
+                  >
+                    <ReactionIconRenderer type={r.key} size={20} />
+                    {isHovered && (
+                      <span className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-md bg-slate-900 dark:bg-black text-[9px] font-semibold text-white pointer-events-none whitespace-nowrap shadow-md animate-in fade-in duration-100">
+                        {r.label}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Reaction Action Button */}
+        {/* Reaction Action Button: Hover triggers dock only after deliberate 250ms hover */}
         <button
           type="button"
           onClick={handleMainButtonClick}
+          onMouseEnter={handleButtonMouseEnter}
+          onMouseLeave={handleButtonMouseLeave}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}

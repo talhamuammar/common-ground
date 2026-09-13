@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback, ChangeEvent, FormEvent } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, ChangeEvent, FormEvent } from 'react';
 import {
   X,
   Image as ImageIcon,
@@ -12,6 +12,7 @@ import { API_URL, getErrorMessage, mediaUrl, Post } from '../lib/api';
 import { useAuth } from './auth-provider';
 import { UserAvatar } from './user-avatar';
 import { VerifiedBadge } from './verified-badge';
+import { useMentionAutocomplete, MentionSuggestions, MentionUser } from './mention-autocomplete';
 
 const MAX_PHOTOS = 8;
 
@@ -26,6 +27,42 @@ interface CreatePostModalProps {
 // Persist post draft in module state across modal open/close and unmount
 let moduleDraftContent = '';
 let moduleDraftImages: File[] = [];
+
+function renderEditorBackdrop(content: string, mentions: MentionUser[]) {
+  if (!content) return null;
+
+  const validNames = mentions
+    .map((m) => m.fullName || m.username)
+    .filter((n): n is string => Boolean(n && n.trim().length > 0))
+    .sort((a, b) => b.length - a.length);
+
+  if (validNames.length === 0) {
+    return <span>{content}</span>;
+  }
+
+  const escaped = validNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const regex = new RegExp(`(${escaped})`, 'g');
+  const parts = content.split(regex);
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        const isMention = validNames.some((n) => n.toLowerCase() === part.toLowerCase());
+        if (isMention) {
+          return (
+            <strong
+              key={i}
+              className="font-bold text-slate-900 dark:text-white underline decoration-accent decoration-2 underline-offset-2"
+            >
+              {part}
+            </strong>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
 
 export function CreatePostModal({
   isOpen,
@@ -78,6 +115,40 @@ export function CreatePostModal({
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+
+  const handleContentChange = (val: string | ((prev: string) => string)) => {
+    if (typeof val === 'function') {
+      setContent((prev) => {
+        const next = val(prev);
+        moduleDraftContent = next;
+        return next;
+      });
+    } else {
+      setContent(val);
+      moduleDraftContent = val;
+    }
+  };
+
+  const {
+    isOpen: isMentionOpen,
+    users: mentionUsers,
+    loading: mentionLoading,
+    selectedIndex: mentionSelectedIndex,
+    query: mentionQuery,
+    coordinates: mentionCoordinates,
+    setSelectedIndex: setMentionSelectedIndex,
+    selectUser: selectMentionUser,
+    handleKeyDown: handleMentionKeyDown,
+    checkMentionTrigger,
+    mentionedUsers,
+    setMentionedUsers,
+    close: closeMention,
+  } = useMentionAutocomplete({
+    content,
+    setContent: handleContentChange,
+    textareaRef,
+  });
 
   // Sync previews whenever images change
   useEffect(() => {
@@ -104,11 +175,6 @@ export function CreatePostModal({
     }
   }, [initialImage, initialImages]);
 
-  const handleContentChange = (val: string) => {
-    setContent(val);
-    moduleDraftContent = val;
-  };
-
   const handleDiscardDraft = () => {
     moduleDraftContent = '';
     moduleDraftImages = [];
@@ -116,7 +182,30 @@ export function CreatePostModal({
     setImages([]);
     setError('');
     setShowTags(false);
+    setMentionedUsers([]);
+    closeMention();
   };
+
+  const activeMentions = useMemo(() => {
+    const trimmed = content.trim();
+    if (!trimmed) return [];
+    return mentionedUsers.filter((u) => {
+      const name = u.fullName || u.username;
+      return trimmed.toLowerCase().includes(name.toLowerCase());
+    });
+  }, [mentionedUsers, content]);
+
+  const handleRemoveMention = useCallback((userToRemove: MentionUser) => {
+    const name = userToRemove.fullName || userToRemove.username;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b\\s*`, 'i');
+    setContent((prev) => {
+      const next = prev.replace(regex, '');
+      moduleDraftContent = next;
+      return next;
+    });
+    setMentionedUsers((prev) => prev.filter((u) => u.id !== userToRemove.id));
+  }, [setMentionedUsers]);
 
   const handlePublish = useCallback(async (e?: FormEvent) => {
     if (e) e.preventDefault();
@@ -134,6 +223,12 @@ export function CreatePostModal({
     try {
       const formData = new FormData();
       formData.append('content', trimmed || '');
+
+      const activeUsernames = Array.from(new Set(activeMentions.map((u) => u.username)));
+      if (activeUsernames.length > 0) {
+        formData.append('mentionedUsernames', JSON.stringify(activeUsernames));
+      }
+
       images.forEach((img) => {
         formData.append('images', img);
       });
@@ -156,6 +251,7 @@ export function CreatePostModal({
       setImages([]);
       setError('');
       setShowTags(false);
+      setMentionedUsers([]);
 
       onPostCreated(data as Post);
       onClose();
@@ -164,7 +260,7 @@ export function CreatePostModal({
     } finally {
       setLoading(false);
     }
-  }, [content, images, token, onPostCreated, onClose]);
+  }, [content, images, token, onPostCreated, onClose, mentionedUsers, setMentionedUsers]);
 
   // Keyboard shortcut (Escape to close, Cmd/Ctrl + Enter to publish)
   useEffect(() => {
@@ -172,6 +268,10 @@ export function CreatePostModal({
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        if (isMentionOpen) {
+          closeMention();
+          return;
+        }
         onClose();
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
@@ -184,7 +284,7 @@ export function CreatePostModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, content, images, loading, onClose, handlePublish]);
+  }, [isOpen, content, images, loading, onClose, handlePublish, isMentionOpen, closeMention]);
 
   // Focus textarea when modal opens without resetting draft content
   useEffect(() => {
@@ -325,22 +425,89 @@ export function CreatePostModal({
                 </span>
                 {user?.isVerified && <VerifiedBadge size={14} />}
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
-                @{user?.username}
-              </p>
             </div>
           </div>
 
-          {/* Text Area */}
-          <textarea
-            ref={textareaRef}
-            rows={previews.length > 0 ? 3 : 5}
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            placeholder="Write a thought, story, or update..."
-            className="w-full resize-none bg-transparent text-[15px] sm:text-base leading-relaxed text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none"
-            maxLength={charLimit}
-          />
+          {/* Text Area with Mention Highlight Backdrop */}
+          <div className="relative min-h-[120px]">
+            {/* Highlight Backdrop: renders mentioned names in bold text */}
+            <div
+              ref={backdropRef}
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 w-full overflow-hidden whitespace-pre-wrap break-words font-sans text-[15px] sm:text-base leading-relaxed text-slate-900 dark:text-slate-100 select-none p-0 m-0 border-0"
+            >
+              {renderEditorBackdrop(content, activeMentions)}
+            </div>
+
+            <textarea
+              ref={textareaRef}
+              rows={previews.length > 0 ? 3 : 5}
+              value={content}
+              onChange={(e) => {
+                handleContentChange(e.target.value);
+                checkMentionTrigger(e.target.selectionStart);
+              }}
+              onSelect={(e) => {
+                checkMentionTrigger((e.target as HTMLTextAreaElement).selectionStart);
+              }}
+              onScroll={(e) => {
+                if (backdropRef.current) {
+                  backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+                }
+              }}
+              onKeyDown={(e) => {
+                const handled = handleMentionKeyDown(e);
+                if (handled) return;
+              }}
+              placeholder="Write a thought, story, or update..."
+              className="relative w-full resize-none bg-transparent font-sans text-[15px] sm:text-base leading-relaxed text-transparent caret-slate-900 dark:caret-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none selection:bg-accent/30 p-0 m-0 border-0"
+              maxLength={charLimit}
+            />
+
+            {/* Mention Suggestions Popover */}
+            <MentionSuggestions
+              isOpen={isMentionOpen}
+              users={mentionUsers}
+              loading={mentionLoading}
+              selectedIndex={mentionSelectedIndex}
+              query={mentionQuery}
+              coordinates={mentionCoordinates}
+              onSelectUser={selectMentionUser}
+              onHoverIndex={setMentionSelectedIndex}
+            />
+          </div>
+
+          {/* Mentioned Users Chips Bar (Visible during post creation) */}
+          {activeMentions.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-2 pb-1 border-t border-slate-100 dark:border-white/[0.06] animate-in fade-in duration-150">
+              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                Mentioned:
+              </span>
+              {activeMentions.map((u) => (
+                <span
+                  key={u.id}
+                  className="inline-flex items-center gap-1.5 pl-1.5 pr-2 py-0.5 rounded-full bg-accent/10 dark:bg-accent/20 border border-accent/25 text-accent-fg text-xs font-bold shadow-xs"
+                >
+                  <UserAvatar
+                    src={mediaUrl(u.avatarUrl)}
+                    name={u.fullName || u.username}
+                    className="size-4 rounded-full text-[9px]"
+                    sizes="16px"
+                  />
+                  <span>{u.fullName || u.username}</span>
+                  {u.isVerified && <VerifiedBadge size={12} />}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMention(u)}
+                    className="ml-0.5 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                    title="Remove mention"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* Attached Images Preview Grid (Shows for 1 or more photos) */}
           {previews.length > 0 && (
@@ -454,41 +621,42 @@ export function CreatePostModal({
           onChange={onFileInputChange}
         />
 
-        {/* Clean Footer */}
-        <footer className="border-t border-slate-100 dark:border-white/[0.08] px-4 py-3 bg-slate-50/50 dark:bg-[#0c0d0c] shrink-0 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-1">
+        {/* Responsive Footer */}
+        <footer className="border-t border-slate-100 dark:border-white/[0.08] px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-50/50 dark:bg-[#0c0d0c] shrink-0 flex items-center justify-between gap-2 overflow-hidden">
+          <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 rounded-lg px-2 sm:px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer shrink-0 ${
                 images.length > 0
                   ? 'bg-slate-200 text-slate-900 dark:bg-white/15 dark:text-white'
                   : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'
               }`}
               title="Add photos (up to 8)"
             >
-              <ImageIcon size={16} />
-              <span>{images.length > 0 ? `Photos (${images.length})` : 'Photos'}</span>
+              <ImageIcon size={16} className="shrink-0" />
+              <span className="hidden min-[400px]:inline">{images.length > 0 ? `Photos (${images.length})` : 'Photos'}</span>
+              <span className="min-[400px]:hidden">{images.length > 0 ? `(${images.length})` : ''}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowTags((prev) => !prev)}
-              className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-1 sm:gap-1.5 rounded-lg px-2 sm:px-2.5 py-1.5 text-xs font-medium transition-colors cursor-pointer shrink-0 ${
                 showTags
                   ? 'bg-slate-200 text-slate-900 dark:bg-white/15 dark:text-white'
                   : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5'
               }`}
               title="Toggle topic tags"
             >
-              <Hash size={15} />
-              <span>Tags</span>
+              <Hash size={15} className="shrink-0" />
+              <span className="hidden min-[400px]:inline">Tags</span>
             </button>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
             <span
-              className={`text-xs ${
+              className={`text-xs tabular-nums ${
                 charsLeft <= 50 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-slate-400 dark:text-slate-500'
               }`}
             >
@@ -499,7 +667,7 @@ export function CreatePostModal({
               type="button"
               onClick={() => handlePublish()}
               disabled={loading || !canPublish}
-              className="inline-flex items-center justify-center rounded-full bg-accent hover:bg-accent-hover px-4 py-1.5 text-xs sm:text-sm font-semibold text-accent-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="inline-flex items-center justify-center rounded-full bg-accent hover:bg-accent-hover px-3.5 sm:px-4 py-1.5 text-xs sm:text-sm font-semibold text-accent-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0 whitespace-nowrap shadow-xs"
             >
               {loading ? 'Posting…' : 'Publish'}
             </button>

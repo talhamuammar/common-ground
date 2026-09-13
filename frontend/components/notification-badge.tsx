@@ -4,7 +4,7 @@ import React from 'react';
 import { ReactionIconRenderer } from './premium-reaction-icons';
 
 interface NotificationBadgeProps {
-  type: 'LIKE_POST' | 'LIKE_COMMENT' | 'COMMENT_POST' | 'REPLY_COMMENT' | 'FOLLOW';
+  type: 'LIKE_POST' | 'LIKE_COMMENT' | 'COMMENT_POST' | 'REPLY_COMMENT' | 'FOLLOW' | 'MENTION_POST' | 'MENTION_COMMENT';
   reactionType?: string | null;
   size?: 'sm' | 'md';
 }
@@ -17,6 +17,7 @@ export function NotificationActionBadge({
   const isLike = type === 'LIKE_POST' || type === 'LIKE_COMMENT';
   const isComment = type === 'COMMENT_POST' || type === 'REPLY_COMMENT';
   const isFollow = type === 'FOLLOW';
+  const isMention = type === 'MENTION_POST' || type === 'MENTION_COMMENT';
 
   const containerClass =
     size === 'md'
@@ -70,6 +71,16 @@ export function NotificationActionBadge({
         >
           <path d="M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm-5 13a5 5 0 0 1 10 0v1H2v-1zm13-7a.75.75 0 0 1 .75.75V11h1.25a.75.75 0 0 1 0 1.5H15.75v1.25a.75.75 0 0 1-1.5 0V12.5H13a.75.75 0 0 1 0-1.5h1.25V9.75A.75.75 0 0 1 15 9z" />
         </svg>
+      </span>
+    );
+  }
+
+  if (isMention) {
+    return (
+      <span
+        className={`absolute -bottom-1 -right-1 grid place-items-center rounded-full bg-gradient-to-tr from-purple-600 to-indigo-500 text-white shadow-xs select-none shrink-0 ${containerClass}`}
+      >
+        <span className="text-[10px] font-black leading-none select-none">@</span>
       </span>
     );
   }

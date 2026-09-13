@@ -4,6 +4,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../uploads/cloudinary.service';
 import { generateUniquePostId } from '../common/id-generator';
+import {
+  attachMentionedUsers as attachMentionedUsersHelper,
+  attachMentionedUsersToComments,
+  MENTION_REGEX,
+} from '../common/mention-helpers';
 
 export type ReactionEvent = {
   postId: number;
@@ -63,7 +68,12 @@ export class PostsService {
     private readonly cloudinary: CloudinaryService,
   ) {}
 
-  async create(userId: number, content: string, imageUrls: string[]) {
+  async create(
+    userId: number,
+    content: string,
+    imageUrls: string[],
+    mentionedUsernames: string[] = [],
+  ) {
     const primaryImage = imageUrls.length > 0 ? imageUrls[0] : null;
     const uniqueId = await generateUniquePostId(this.prisma);
     const post = await this.prisma.post.create({
@@ -76,7 +86,37 @@ export class PostsService {
       },
       include: postInclude,
     });
-    return normalizePost(post);
+
+    // Notify users mentioned with @username or selected in composer
+    await this.handlePostMentions(userId, post.id, post.content, mentionedUsernames).catch(() => {});
+
+    const [enriched] = await this.attachMentionedUsers([normalizePost(post)]);
+
+    // Explicitly guarantee mentions are populated immediately from mentionedUsernames without delay
+    if (mentionedUsernames.length > 0) {
+      const explicitUsers = await this.prisma.user.findMany({
+        where: {
+          username: { in: mentionedUsernames, mode: 'insensitive' },
+        },
+        select: {
+          username: true,
+          fullName: true,
+          isVerified: true,
+        },
+      });
+
+      const existingUsernames = new Set((enriched.mentions || []).map((m) => m.username.toLowerCase()));
+      const combined = [...(enriched.mentions || [])];
+      for (const u of explicitUsers) {
+        if (!existingUsernames.has(u.username.toLowerCase())) {
+          combined.push(u);
+          existingUsernames.add(u.username.toLowerCase());
+        }
+      }
+      enriched.mentions = combined;
+    }
+
+    return enriched;
   }
 
   async findAll() {
@@ -85,7 +125,8 @@ export class PostsService {
       orderBy: { createdAt: 'desc' },
       include: postInclude,
     });
-    return posts.map(normalizePost);
+    const normalized = posts.map(normalizePost);
+    return this.attachMentionedUsers(normalized);
   }
 
   async findOne(id: number) {
@@ -94,10 +135,17 @@ export class PostsService {
       include: postInclude,
     });
     if (!post) throw new NotFoundException('Post not found');
-    return normalizePost(post);
+    const [enriched] = await this.attachMentionedUsers([normalizePost(post)]);
+    return enriched;
   }
 
-  async addComment(userId: number, postId: number, content: string, parentId?: number) {
+  async addComment(
+    userId: number,
+    postId: number,
+    content: string,
+    parentId?: number,
+    mentionedUsernames: string[] = [],
+  ) {
     const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post) throw new NotFoundException('Post not found');
 
@@ -158,11 +206,40 @@ export class PostsService {
       }
     }
 
-    return comment;
+    // Notify mentioned users with MENTION_COMMENT
+    await this.handleCommentMentions(userId, postId, comment.id, content, mentionedUsernames).catch(() => {});
+
+    // Immediately enrich returned comment with mentions metadata
+    const [enriched] = await attachMentionedUsersToComments(this.prisma, [comment]);
+
+    if (mentionedUsernames && mentionedUsernames.length > 0) {
+      const explicitUsers = await this.prisma.user.findMany({
+        where: {
+          username: { in: mentionedUsernames, mode: 'insensitive' },
+        },
+        select: {
+          username: true,
+          fullName: true,
+          isVerified: true,
+        },
+      });
+
+      const existingUsernames = new Set(((enriched as any).mentions || []).map((m: any) => m.username.toLowerCase()));
+      const combined = [...((enriched as any).mentions || [])];
+      for (const u of explicitUsers) {
+        if (!existingUsernames.has(u.username.toLowerCase())) {
+          combined.push(u);
+          existingUsernames.add(u.username.toLowerCase());
+        }
+      }
+      (enriched as any).mentions = combined;
+    }
+
+    return enriched;
   }
 
-  getComments(postId: number) {
-    return this.prisma.comment.findMany({
+  async getComments(postId: number) {
+    const comments = await this.prisma.comment.findMany({
       where: { postId, parentId: null },
       orderBy: { createdAt: 'asc' },
       include: {
@@ -179,6 +256,8 @@ export class PostsService {
         },
       },
     });
+
+    return attachMentionedUsersToComments(this.prisma, comments);
   }
 
   async toggleLike(userId: number, postId: number, reactionType = 'LIKE') {
@@ -307,7 +386,8 @@ export class PostsService {
         },
       },
     });
-    return bookmarks.map((b) => normalizePost(b.post));
+    const normalized = bookmarks.map((b) => normalizePost(b.post));
+    return this.attachMentionedUsers(normalized);
   }
 
   async getLikedPosts(userId: number) {
@@ -320,7 +400,8 @@ export class PostsService {
         },
       },
     });
-    return likes.map((l) => normalizePost(l.post));
+    const normalized = likes.map((l) => normalizePost(l.post));
+    return this.attachMentionedUsers(normalized);
   }
 
   async getPostLikes(postId: number, currentUserId?: number) {
@@ -544,6 +625,128 @@ export class PostsService {
       tag: `#${label}`,
       label,
     }));
+  }
+
+  /**
+   * Extract user mentions (@username or @[username](name)) and deliver MENTION_POST notifications to valid recipients.
+   */
+  private async handlePostMentions(
+    authorId: number,
+    postId: number,
+    content: string,
+    explicitUsernames: string[] = [],
+  ) {
+    const mentionRegex = /(?:^|[^\w@])@(?:\[([a-zA-Z0-9_]+)\]\([^)]+\)|([a-zA-Z0-9_]+))/g;
+    const matches: string[] = [...explicitUsernames];
+    if (content) {
+      let match: RegExpExecArray | null;
+      while ((match = mentionRegex.exec(content)) !== null) {
+        const u = match[1] || match[2];
+        if (u) {
+          matches.push(u);
+        }
+      }
+    }
+
+    if (matches.length === 0) return;
+
+    // Deduplicate mentioned usernames
+    const uniqueUsernames = Array.from(new Set(matches.map((u) => u.toLowerCase())));
+
+    try {
+      const mentionedUsers = await this.prisma.user.findMany({
+        where: {
+          username: { in: uniqueUsernames, mode: 'insensitive' },
+          id: { not: authorId },
+        },
+        select: { id: true, username: true },
+      });
+
+      const promises = mentionedUsers.map((recipient) =>
+        this.notifications
+          .create({
+            recipientId: recipient.id,
+            actorId: authorId,
+            type: 'MENTION_POST',
+            postId,
+            content: content.trim().slice(0, 120),
+          })
+          .catch((err) => {
+            this.logger.warn(`Failed to create mention notification for user ${recipient.id}: ${err}`);
+          }),
+      );
+      await Promise.all(promises);
+    } catch (err) {
+      this.logger.error(`Error processing mentions for post ${postId}: ${err}`);
+    }
+  }
+
+  /**
+   * Extract user mentions in comments and deliver MENTION_COMMENT notifications.
+   */
+  private async handleCommentMentions(
+    authorId: number,
+    postId: number,
+    commentId: number,
+    content: string,
+    explicitUsernames: string[] = [],
+  ) {
+    const mentionRegex = /(?:^|[^\w@])@(?:\[([a-zA-Z0-9_]+)\]\([^)]+\)|([a-zA-Z0-9_]+))/g;
+    const matches: string[] = [...explicitUsernames];
+    if (content) {
+      let match: RegExpExecArray | null;
+      while ((match = mentionRegex.exec(content)) !== null) {
+        const u = match[1] || match[2];
+        if (u) {
+          matches.push(u);
+        }
+      }
+    }
+
+    if (matches.length === 0) return;
+
+    const uniqueUsernames = Array.from(new Set(matches.map((u) => u.toLowerCase())));
+
+    try {
+      const mentionedUsers = await this.prisma.user.findMany({
+        where: {
+          username: { in: uniqueUsernames, mode: 'insensitive' },
+          id: { not: authorId },
+        },
+        select: { id: true, username: true },
+      });
+
+      const promises = mentionedUsers.map((recipient) =>
+        this.notifications
+          .create({
+            recipientId: recipient.id,
+            actorId: authorId,
+            type: 'MENTION_COMMENT',
+            postId,
+            commentId,
+            content: content.trim().slice(0, 120),
+          })
+          .catch((err) => {
+            this.logger.warn(`Failed to create comment mention notification for user ${recipient.id}: ${err}`);
+          }),
+      );
+      await Promise.all(promises);
+    } catch (err) {
+      this.logger.error(`Error processing mentions for comment ${commentId}: ${err}`);
+    }
+  }
+
+  /**
+   * Enrich posts with mentioned users metadata ({ username, fullName, isVerified })
+   */
+  async attachMentionedUsers<T extends { content?: string | null; comments?: any[] }>(posts: T[]) {
+    const enrichedPosts = await attachMentionedUsersHelper(this.prisma, posts);
+    for (const p of enrichedPosts) {
+      if ((p as any).comments && Array.isArray((p as any).comments) && (p as any).comments.length > 0) {
+        (p as any).comments = await attachMentionedUsersToComments(this.prisma, (p as any).comments);
+      }
+    }
+    return enrichedPosts;
   }
 }
 

@@ -1214,9 +1214,9 @@ export default function PublicProfilePage() {
 
             <ul className="mt-3 space-y-3.5 text-sm text-slate-600 dark:text-slate-300">
               {workItems.map((item, idx) => (
-                <li key={`sb-work-${idx}`} className="flex items-start gap-2.5">
+                <li key={`sb-work-${idx}`} className="flex items-start gap-2.5 min-w-0">
                   <Briefcase className="size-4 text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
-                  <span className="leading-snug text-slate-700 dark:text-slate-200">
+                  <span className="leading-snug text-slate-700 dark:text-slate-200 min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
                     {item.position && item.name ? (
                       <>
                         {!item.isCurrent && <span className="text-slate-500 dark:text-slate-400">Former </span>}
@@ -1234,9 +1234,9 @@ export default function PublicProfilePage() {
               ))}
 
               {educationItems.map((item, idx) => (
-                <li key={`sb-edu-${idx}`} className="flex items-start gap-2.5">
+                <li key={`sb-edu-${idx}`} className="flex items-start gap-2.5 min-w-0">
                   <GraduationCap className="size-4 text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
-                  <span className="leading-snug text-slate-700 dark:text-slate-200">
+                  <span className="leading-snug text-slate-700 dark:text-slate-200 min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
                     {item.subject && item.name ? (
                       <>
                         <span className="text-slate-500 dark:text-slate-400">
@@ -1463,14 +1463,14 @@ export default function PublicProfilePage() {
           {activeTab === 'about' && (
             <div className="space-y-5">
               {/* 1. Overview & Bio Card */}
-              <div className="ultranet-card p-6">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3">
+              <div className="ultranet-card p-4 sm:p-6">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3 gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <UserIcon size={16} className="text-accent-fg" />
+                    <UserIcon size={16} className="text-accent-fg shrink-0" />
                     <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Personal Overview</h2>
                   </div>
                   {isSelf && (
-                    <Link href="/settings/profile" className="flex items-center gap-1 text-xs font-semibold text-accent-fg hover:underline">
+                    <Link href="/settings/profile" className="flex items-center gap-1 text-xs font-semibold text-accent-fg hover:underline shrink-0">
                       <Edit3 size={12} /> Edit
                     </Link>
                   )}
@@ -1540,14 +1540,14 @@ export default function PublicProfilePage() {
               </div>
 
               {/* 2. Places & Interactive Location Maps Card */}
-              <div className="ultranet-card p-6">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3">
+              <div className="ultranet-card p-4 sm:p-6">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3 gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <MapPin size={16} className="text-accent-fg" />
+                    <MapPin size={16} className="text-accent-fg shrink-0" />
                     <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Places & Locations</h2>
                   </div>
                   {isSelf && (
-                    <Link href="/settings/profile" className="text-xs font-semibold text-accent-fg hover:underline">
+                    <Link href="/settings/profile" className="text-xs font-semibold text-accent-fg hover:underline shrink-0">
                       Edit places →
                     </Link>
                   )}
@@ -1555,23 +1555,23 @@ export default function PublicProfilePage() {
 
                 <div className="mt-4 space-y-6">
                   {/* Location Meta Badges */}
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="rounded-xl bg-slate-50/70 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06]">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl bg-slate-50/70 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06] min-w-0">
                       <span className="text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
                         <MapPin size={14} className="text-accent-fg shrink-0" />
                         Current Living Location
                       </span>
-                      <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100">
+                      <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100 break-words [overflow-wrap:anywhere]">
                         <span>{profile.location || 'Not specified'}</span>
                       </p>
                     </div>
                     {profile.hometown && (
-                      <div className="rounded-xl bg-slate-50/70 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06]">
+                      <div className="rounded-xl bg-slate-50/70 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06] min-w-0">
                         <span className="text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
                           <Home size={14} className="text-amber-500 shrink-0" />
                           Hometown & Origin
                         </span>
-                        <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100">
+                        <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100 break-words [overflow-wrap:anywhere]">
                           <span>{profile.hometown}</span>
                         </p>
                       </div>
@@ -1584,12 +1584,14 @@ export default function PublicProfilePage() {
                       {/* Current Location Map */}
                       {profile.location && (
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                              <MapPin size={14} className="text-accent-fg" />
-                              <span>Current Location: <strong className="text-slate-900 dark:text-white font-semibold">{profile.location}</strong></span>
+                          <div className="flex items-start sm:items-center justify-between gap-2.5 flex-wrap sm:flex-nowrap">
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-start gap-1.5 min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+                              <MapPin size={14} className="text-accent-fg shrink-0 mt-0.5" />
+                              <span className="break-words">
+                                Current Location: <strong className="text-slate-900 dark:text-white font-semibold">{profile.location}</strong>
+                              </span>
                             </p>
-                            <span className="text-xs font-semibold text-accent-fg bg-accent-subtle border border-accent-subtle-border rounded-full px-2.5 py-0.5">
+                            <span className="text-xs font-semibold text-accent-fg bg-accent-subtle border border-accent-subtle-border rounded-full px-2.5 py-0.5 shrink-0 whitespace-nowrap self-start sm:self-center">
                               Living Here
                             </span>
                           </div>
@@ -1609,12 +1611,14 @@ export default function PublicProfilePage() {
                       {/* Hometown Map */}
                       {profile.hometown && (
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                              <Home size={14} className="text-amber-500" />
-                              <span>Hometown & Origin: <strong className="text-slate-900 dark:text-white font-semibold">{profile.hometown}</strong></span>
+                          <div className="flex items-start sm:items-center justify-between gap-2.5 flex-wrap sm:flex-nowrap">
+                            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-start gap-1.5 min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+                              <Home size={14} className="text-amber-500 shrink-0 mt-0.5" />
+                              <span className="break-words">
+                                Hometown & Origin: <strong className="text-slate-900 dark:text-white font-semibold">{profile.hometown}</strong>
+                              </span>
                             </p>
-                            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-0.5">
+                            <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-0.5 shrink-0 whitespace-nowrap self-start sm:self-center">
                               Hometown
                             </span>
                           </div>
@@ -1647,14 +1651,14 @@ export default function PublicProfilePage() {
 
               {/* 3. Work & Education Card */}
               {(workItems.length > 0 || educationItems.length > 0) && (
-                <div className="ultranet-card p-6">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3">
+                <div className="ultranet-card p-4 sm:p-6">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.08] pb-3 gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <Briefcase size={16} className="text-accent-fg" />
+                      <Briefcase size={16} className="text-accent-fg shrink-0" />
                       <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Work & Education</h2>
                     </div>
                     {isSelf && (
-                      <Link href="/settings/profile" className="text-xs font-semibold text-accent-fg hover:underline">
+                      <Link href="/settings/profile" className="text-xs font-semibold text-accent-fg hover:underline shrink-0">
                         Edit work & education →
                       </Link>
                     )}
@@ -1665,26 +1669,26 @@ export default function PublicProfilePage() {
                     {workItems.length > 0 && (
                       <div>
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5 mb-3">
-                          <Briefcase size={14} className="text-accent-fg" />
+                          <Briefcase size={14} className="text-accent-fg shrink-0" />
                           <span>Work Experience ({workItems.length})</span>
                         </span>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           {workItems.map((item, idx) => (
                             <div
                               key={`about-work-${idx}`}
-                              className="rounded-xl bg-slate-50 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06] flex items-start justify-between gap-2"
+                              className="rounded-xl bg-slate-50 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06] flex items-start justify-between gap-3 min-w-0"
                             >
-                              <div>
+                              <div className="min-w-0 flex-1">
                                 <span className="text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
-                                  <Briefcase size={13} className="text-accent-fg" />
-                                  <span>{item.isCurrent ? 'Current Position' : 'Past Experience'}</span>
+                                  <Briefcase size={13} className="text-accent-fg shrink-0" />
+                                  <span className="truncate">{item.isCurrent ? 'Current Position' : 'Past Experience'}</span>
                                 </span>
-                                <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100">
+                                <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100 break-words [overflow-wrap:anywhere]">
                                   {formatWorkText(item)}
                                 </p>
                               </div>
                               <span
-                                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 ${
+                                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 whitespace-nowrap self-start ${
                                   item.isCurrent
                                     ? 'bg-accent-subtle text-accent-fg border-accent-subtle-border'
                                     : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-zinc-800/60 dark:text-slate-400 dark:border-white/10'
@@ -1702,26 +1706,26 @@ export default function PublicProfilePage() {
                     {educationItems.length > 0 && (
                       <div className={workItems.length > 0 ? 'pt-4 border-t border-slate-100 dark:border-white/[0.06]' : ''}>
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center gap-1.5 mb-3">
-                          <GraduationCap size={15} className="text-accent-fg" />
+                          <GraduationCap size={15} className="text-accent-fg shrink-0" />
                           <span>Education & Studies ({educationItems.length})</span>
                         </span>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           {educationItems.map((item, idx) => (
                             <div
                               key={`about-edu-${idx}`}
-                              className="rounded-xl bg-slate-50 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06] flex items-start justify-between gap-2"
+                              className="rounded-xl bg-slate-50 dark:bg-[#151515] p-3.5 border border-slate-200/60 dark:border-white/[0.06] flex items-start justify-between gap-3 min-w-0"
                             >
-                              <div>
+                              <div className="min-w-0 flex-1">
                                 <span className="text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
-                                  <GraduationCap size={13} className="text-accent-fg" />
-                                  <span>{item.isCurrent ? 'Currently Studying' : 'Past Study'}</span>
+                                  <GraduationCap size={13} className="text-accent-fg shrink-0" />
+                                  <span className="truncate">{item.isCurrent ? 'Currently Studying' : 'Past Study'}</span>
                                 </span>
-                                <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100">
+                                <p className="mt-1 text-sm sm:text-[15px] font-semibold text-slate-800 dark:text-slate-100 break-words [overflow-wrap:anywhere]">
                                   {formatEducationText(item)}
                                 </p>
                               </div>
                               <span
-                                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 ${
+                                className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shrink-0 whitespace-nowrap self-start ${
                                   item.isCurrent
                                     ? 'bg-accent-subtle text-accent-fg border-accent-subtle-border'
                                     : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-zinc-800/60 dark:text-slate-400 dark:border-white/10'
@@ -1740,9 +1744,9 @@ export default function PublicProfilePage() {
 
               {/* 4. Interests & Languages Card */}
               {(interestTags.length > 0 || languageTags.length > 0) && (
-                <div className="ultranet-card p-6">
+                <div className="ultranet-card p-4 sm:p-6">
                   <div className="flex items-center gap-2 border-b border-slate-100 dark:border-white/[0.08] pb-3">
-                    <Compass size={16} className="text-accent-fg" />
+                    <Compass size={16} className="text-accent-fg shrink-0" />
                     <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">Interests & Languages</h2>
                   </div>
 

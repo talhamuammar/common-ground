@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface CreateNotificationDto {
   recipientId: number;
   actorId: number;
-  type: 'LIKE_POST' | 'LIKE_COMMENT' | 'COMMENT_POST' | 'REPLY_COMMENT' | 'FOLLOW';
+  type: 'LIKE_POST' | 'LIKE_COMMENT' | 'COMMENT_POST' | 'REPLY_COMMENT' | 'FOLLOW' | 'MENTION_POST' | 'MENTION_COMMENT';
   postId?: number | null;
   commentId?: number | null;
   content?: string | null;
@@ -131,7 +131,11 @@ export class NotificationsService {
     }
 
     if (params?.type && params.type !== 'ALL') {
-      where.type = params.type;
+      if (params.type === 'MENTION_POST' || params.type === 'MENTIONS') {
+        where.type = { in: ['MENTION_POST', 'MENTION_COMMENT'] };
+      } else {
+        where.type = params.type;
+      }
     }
 
     const [items, total, unreadCount] = await Promise.all([

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { attachMentionedUsers } from '../common/mention-helpers';
 
 const postInclude = {
   author: { select: { id: true, username: true, fullName: true, avatarUrl: true, isVerified: true } },
@@ -103,8 +104,20 @@ export class UsersService {
     const followingIdSet = new Set(followingList.map(u => u.id));
     const mutualFriends = followersList.filter(u => followingIdSet.has(u.id));
 
+    const normalizedPosts = user.posts.map(p => {
+      const copy = { ...p };
+      if (!copy.imageUrls || copy.imageUrls.length === 0) {
+        copy.imageUrls = copy.imageUrl ? [copy.imageUrl] : [];
+      } else {
+        copy.imageUrls = Array.from(new Set(copy.imageUrls));
+      }
+      return copy;
+    });
+    const enrichedPosts = await attachMentionedUsers(this.prisma, normalizedPosts);
+
     return {
       ...user,
+      posts: enrichedPosts,
       followersList,
       followingList,
       friendsList: mutualFriends,
