@@ -1428,6 +1428,15 @@ export default function PublicProfilePage() {
                   };
                 });
               }}
+              onPostUpdated={(updatedPost) => {
+                setProfile(prev => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    posts: prev.posts.map(p => p.id === updatedPost.id ? { ...p, ...updatedPost } : p),
+                  };
+                });
+              }}
             />
           )}
 

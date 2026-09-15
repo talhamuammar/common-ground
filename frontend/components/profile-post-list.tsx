@@ -9,17 +9,33 @@ import { FullscreenPostModal } from './post-modal';
 export function ProfilePostList({
   posts,
   onPostDeleted,
+  onPostUpdated,
   savedPostIds = [],
   onToggleSave,
   onTagClick,
 }: {
   posts: Post[];
   onPostDeleted?: (postId: number) => void;
+  onPostUpdated?: (post: Post) => void;
   savedPostIds?: number[];
   onToggleSave?: (postId: number) => void;
   onTagClick?: (tag: string) => void;
 }) {
   const [activeModalPost, setActiveModalPost] = useState<Post | null>(null);
+
+  // Sync active modal post on global post-updated event
+  React.useEffect(() => {
+    const handleGlobalPostUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<Post>;
+      if (customEvent.detail) {
+        const updated = customEvent.detail;
+        setActiveModalPost((current) => (current && current.id === updated.id ? { ...current, ...updated } : current));
+        onPostUpdated?.(updated);
+      }
+    };
+    window.addEventListener('post-updated', handleGlobalPostUpdated);
+    return () => window.removeEventListener('post-updated', handleGlobalPostUpdated);
+  }, [onPostUpdated]);
 
   // Live real-time reaction synchronization across cards and modals
   useReactionsSync(
@@ -63,6 +79,7 @@ export function ProfilePostList({
             isSaved={savedPostIds.includes(post.id)}
             onToggleSave={onToggleSave}
             onDeleted={onPostDeleted}
+            onUpdated={onPostUpdated}
             onOpenModal={(p) => setActiveModalPost(p)}
           />
         ))}
@@ -79,6 +96,7 @@ export function ProfilePostList({
             onPostDeleted?.(id);
             setActiveModalPost(null);
           }}
+          onUpdated={onPostUpdated}
           onTagClick={(tag) => {
             setActiveModalPost(null);
             onTagClick?.(tag);

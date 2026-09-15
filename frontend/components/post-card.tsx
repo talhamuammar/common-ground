@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { Bookmark, MessageCircle, Send, CornerDownRight, X } from 'lucide-react';
+import { Bookmark, MessageCircle, Send } from 'lucide-react';
 import { API_URL, getErrorMessage, mediaUrl, Post, PostComment, ReactionType } from '../lib/api';
 import { broadcastReaction, useReactionsSync } from '../lib/reactions-realtime';
 import { relativeTime } from '../lib/time';
@@ -17,6 +17,7 @@ import { PostPhotoCarousel } from './post-photo-carousel';
 import { FormattedText } from './formatted-text';
 import { CommentItem } from './comment-item';
 import { useMentionAutocomplete, MentionSuggestions, renderEditorBackdrop } from './mention-autocomplete';
+import { EditPostModal } from './edit-post-modal';
 
 export function PostCard({
   post,
@@ -24,7 +25,9 @@ export function PostCard({
   isSaved,
   onToggleSave,
   onDeleted,
+  onUpdated,
   onOpenModal,
+  onPhotoClick,
   defaultShowComments = false,
 }: {
   post: Post;
@@ -32,11 +35,20 @@ export function PostCard({
   isSaved?: boolean;
   onToggleSave?: (postId: number) => void;
   onDeleted?: (postId: number) => void;
+  onUpdated?: (post: Post) => void;
   onOpenModal?: (post: Post) => void;
+  onPhotoClick?: (post: Post) => void;
   defaultShowComments?: boolean;
 }) {
   const { user, token } = useAuth();
   const { openAuthModal } = useAuthModal();
+
+  const [currentPost, setCurrentPost] = useState<Post>(post);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  useEffect(() => {
+    setCurrentPost(post);
+  }, [post]);
 
   const [currentReaction, setCurrentReaction] = useState<ReactionType | null>(() => {
     if (!user || !post.likes) return null;
@@ -50,7 +62,11 @@ export function PostCard({
   const [activeCommentLikesId, setActiveCommentLikesId] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<PostComment[]>(post.comments || []);
-  const [replyingTo, setReplyingTo] = useState<{ commentId: number; username: string } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{
+    parentId: number;
+    targetId: number;
+    username: string;
+  } | null>(null);
   const commentInputRef = useRef<HTMLInputElement | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState('');
@@ -279,7 +295,7 @@ export function PostCard({
     }
   }
 
-  const handleStartReply = (commentId: number, username: string) => {
+  const handleStartReply = (parentId: number, username: string, targetId?: number) => {
     if (!token) {
       openAuthModal({
         title: 'Join the discussion',
@@ -287,28 +303,71 @@ export function PostCard({
       });
       return;
     }
-    setReplyingTo({ commentId, username });
+    setReplyTarget({
+      parentId,
+      targetId: targetId ?? parentId,
+      username,
+    });
     setShowComments(true);
-    setCommentText((prev) => {
-      const mention = `@${username} `;
-      if (prev.startsWith(mention)) return prev;
-      return `${mention}${prev}`;
-    });
-    setMentionedUsers((prev) => {
-      if (prev.some((u) => u.username.toLowerCase() === username.toLowerCase())) return prev;
-      return [...prev, { id: 0, username, fullName: null, avatarUrl: null }];
-    });
-    setTimeout(() => {
-      commentInputRef.current?.focus();
-    }, 50);
   };
 
   const handleCancelReply = () => {
-    if (replyingTo) {
-      setCommentText((prev) => prev.replace(new RegExp(`^@${replyingTo.username}\\s*`), ''));
-      setMentionedUsers((prev) => prev.filter((u) => u.username.toLowerCase() !== replyingTo.username.toLowerCase()));
-      setReplyingTo(null);
+    setReplyTarget(null);
+  };
+
+  const handleReplySubmit = async (
+    parentId: number,
+    text: string,
+    mentionedUsernames: string[],
+  ) => {
+    if (!token) {
+      openAuthModal({
+        title: 'Join the discussion',
+        description: 'Sign up or log in to reply to this comment.',
+      });
+      return;
     }
+
+    const response = await fetch(`${API_URL}/posts/${post.id}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        content: text.trim(),
+        parentId,
+        mentionedUsernames,
+      }),
+    });
+    const payload: unknown = await response.json();
+    if (!response.ok) throw new Error(getErrorMessage(payload, 'Could not post reply'));
+
+    const createdComment = payload as PostComment;
+    setComments((prev) =>
+      prev.map((c) =>
+        c.id === parentId
+          ? {
+              ...c,
+              replies: [...(c.replies || []), createdComment],
+              _count: {
+                ...c._count,
+                likes: c._count?.likes ?? 0,
+                replies: (c.replies?.length ?? c._count?.replies ?? 0) + 1,
+              },
+            }
+          : c
+      )
+    );
+    setCurrentPost((prev) => ({
+      ...prev,
+      _count: {
+        ...prev._count,
+        likes: prev._count?.likes ?? 0,
+        comments: (prev._count?.comments ?? 0) + 1,
+      },
+    }));
+    setReplyTarget(null);
   };
 
   async function handleAddComment(e: React.FormEvent) {
@@ -326,9 +385,6 @@ export function PostCard({
     setCommentError('');
     try {
       const activeUsernames = Array.from(new Set(mentionedUsers.map((u) => u.username)));
-      if (replyingTo && !activeUsernames.some((u) => u.toLowerCase() === replyingTo.username.toLowerCase())) {
-        activeUsernames.push(replyingTo.username);
-      }
 
       const response = await fetch(`${API_URL}/posts/${post.id}/comments`, {
         method: 'POST',
@@ -338,7 +394,6 @@ export function PostCard({
         },
         body: JSON.stringify({
           content: commentText.trim(),
-          parentId: replyingTo?.commentId,
           mentionedUsernames: activeUsernames,
         }),
       });
@@ -346,29 +401,18 @@ export function PostCard({
       if (!response.ok) throw new Error(getErrorMessage(payload, 'Could not post comment'));
 
       const createdComment = payload as PostComment;
-      if (replyingTo) {
-        setComments((prev) =>
-          prev.map((c) =>
-            c.id === replyingTo.commentId
-              ? {
-                  ...c,
-                  replies: [...(c.replies || []), createdComment],
-                  _count: {
-                    ...c._count,
-                    likes: c._count?.likes ?? 0,
-                    replies: (c.replies?.length ?? c._count?.replies ?? 0) + 1,
-                  },
-                }
-              : c
-          )
-        );
-      } else {
-        setComments((prev) => [...prev, createdComment]);
-      }
+      setComments((prev) => [...prev, createdComment]);
+      setCurrentPost((prev) => ({
+        ...prev,
+        _count: {
+          ...prev._count,
+          likes: prev._count?.likes ?? 0,
+          comments: (prev._count?.comments ?? 0) + 1,
+        },
+      }));
       setCommentText('');
       setMentionedUsers([]);
       closeMention();
-      setReplyingTo(null);
     } catch (cause) {
       setCommentError(cause instanceof Error ? cause.message : 'Could not post comment');
     } finally {
@@ -376,11 +420,84 @@ export function PostCard({
     }
   }
 
+  const handlePostUpdated = (updated: Post) => {
+    setCurrentPost(updated);
+    if (onUpdated) onUpdated(updated);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('post-updated', { detail: updated }));
+    }
+  };
+
+  const handleCommentUpdated = (updated: PostComment) => {
+    setComments((prev) => {
+      if (!updated.parentId) {
+        return prev.map((c) => (c.id === updated.id ? { ...c, ...updated, replies: c.replies } : c));
+      }
+      return prev.map((c) => {
+        if (c.id === updated.parentId) {
+          const nextReplies = (c.replies || []).map((r) => (r.id === updated.id ? updated : r));
+          return { ...c, replies: nextReplies };
+        }
+        return c;
+      });
+    });
+  };
+
+  const handleCommentDeleted = (deletedId: number, parentId?: number | null) => {
+    setComments((prev) => {
+      if (!parentId) {
+        return prev.filter((c) => c.id !== deletedId);
+      }
+      return prev.map((c) => {
+        if (c.id === parentId) {
+          const nextReplies = (c.replies || []).filter((r) => r.id !== deletedId);
+          return {
+            ...c,
+            replies: nextReplies,
+            _count: {
+              ...c._count,
+              likes: c._count?.likes ?? 0,
+              replies: Math.max(0, (c.replies?.length ?? c._count?.replies ?? 1) - 1),
+            },
+          };
+        }
+        return c;
+      });
+    });
+    setCurrentPost((prev) => ({
+      ...prev,
+      _count: {
+        ...prev._count,
+        likes: prev._count?.likes ?? 0,
+        comments: Math.max(0, (prev._count?.comments ?? 1) - 1),
+      },
+    }));
+  };
+
   const handlePhotoClick = () => {
-    if (onOpenModal) {
-      onOpenModal(post);
+    if (onPhotoClick) {
+      onPhotoClick(currentPost);
+    } else if (onOpenModal) {
+      onOpenModal(currentPost);
     } else {
       setShowComments(true);
+    }
+  };
+
+  const handleCommentButtonClick = () => {
+    if (defaultShowComments) {
+      setShowComments(true);
+      if (commentInputRef.current) {
+        commentInputRef.current.focus();
+        commentInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
+    if (onOpenModal) {
+      onOpenModal(currentPost);
+    } else {
+      setShowComments((prev) => !prev);
     }
   };
 
@@ -390,28 +507,28 @@ export function PostCard({
   );
 
   const rawUrls: string[] = (
-    post.imageUrls && post.imageUrls.length > 0
-      ? post.imageUrls
-      : (post.imageUrl ? [post.imageUrl] : [])
+    currentPost.imageUrls && currentPost.imageUrls.length > 0
+      ? currentPost.imageUrls
+      : (currentPost.imageUrl ? [currentPost.imageUrl] : [])
   ).map((url) => mediaUrl(url)).filter(Boolean) as string[];
   const imageUrls = Array.from(new Set(rawUrls));
 
   return (
     <article
-      id={'post-' + post.id}
+      id={'post-' + currentPost.id}
       className="group relative scroll-mt-20 rounded-2xl border border-slate-200/80 bg-white/95 p-4 sm:p-5 shadow-[0_2px_14px_rgba(0,0,0,0.03)] transition-all duration-200 hover:border-slate-300 hover:shadow-[0_8px_26px_rgba(0,0,0,0.05)] dark:border-white/[0.08] dark:bg-[#0d0d0d] dark:shadow-[0_4px_20px_rgba(0,0,0,0.5)] dark:hover:border-white/[0.15]"
     >
       {/* Post Header */}
       <header className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Link
-            href={`/profile/${encodeURIComponent(post.author.username)}`}
+            href={`/profile/${encodeURIComponent(currentPost.author.username)}`}
             className="relative shrink-0"
-            aria-label={`View ${post.author.username}'s profile`}
+            aria-label={`View ${currentPost.author.username}'s profile`}
           >
             <UserAvatar
-              src={post.author.avatarUrl}
-              name={post.author.fullName || post.author.username}
+              src={currentPost.author.avatarUrl}
+              name={currentPost.author.fullName || currentPost.author.username}
               className="size-10 rounded-full border border-slate-100 bg-slate-100 text-xs font-semibold text-slate-700 dark:border-white/[0.1] dark:bg-[#151515] dark:text-slate-200"
             />
           </Link>
@@ -419,20 +536,20 @@ export function PostCard({
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <Link
-                href={`/profile/${encodeURIComponent(post.author.username)}`}
+                href={`/profile/${encodeURIComponent(currentPost.author.username)}`}
                 className="truncate text-[15px] sm:text-[16px] font-bold text-slate-800 hover:text-accent-fg dark:text-slate-100 hover:underline flex items-center gap-1"
               >
-                <span>{post.author.fullName || post.author.username}</span>
-                {post.author.isVerified && <VerifiedBadge size={15} />}
+                <span>{currentPost.author.fullName || currentPost.author.username}</span>
+                {currentPost.author.isVerified && <VerifiedBadge size={15} />}
               </Link>
             </div>
             <p className="flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500">
               <Link
-                href={`/post/${post.id}`}
+                href={`/post/${currentPost.id}`}
                 className="hover:underline hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                 title="View direct post link"
               >
-                <time dateTime={post.createdAt}>{relativeTime(post.createdAt)}</time>
+                <time dateTime={currentPost.createdAt}>{relativeTime(currentPost.createdAt)}</time>
               </Link>
               <span>·</span>
               <span>Community</span>
@@ -441,18 +558,19 @@ export function PostCard({
         </div>
 
         <PostOptionsMenu
-          postId={post.id}
-          authorId={post.author.id}
+          postId={currentPost.id}
+          authorId={currentPost.author.id}
           currentUserId={user?.id}
           token={token}
+          onEdit={() => setIsEditModalOpen(true)}
           onDeleted={onDeleted}
         />
       </header>
 
       {/* Post Text Content */}
-      {post.content && post.content.trim().length > 0 && (
+      {currentPost.content && currentPost.content.trim().length > 0 && (
         <div className="my-3.5 text-[15px] sm:text-[16px] leading-relaxed text-slate-800 dark:text-slate-100 [overflow-wrap:anywhere]">
-          <FormattedText content={post.content} mentions={post.mentions} onTagClick={onTagClick} />
+          <FormattedText content={currentPost.content} mentions={currentPost.mentions} onTagClick={onTagClick} />
         </div>
       )}
 
@@ -482,13 +600,7 @@ export function PostCard({
           {/* Comment Button */}
           <button
             type="button"
-            onClick={() => {
-              if (onOpenModal) {
-                onOpenModal(post);
-              } else {
-                setShowComments((prev) => !prev);
-              }
-            }}
+            onClick={handleCommentButtonClick}
             className={`flex items-center gap-1.5 rounded-full px-2.5 sm:px-3 py-1 text-sm font-semibold transition-colors cursor-pointer ${showComments
                 ? 'bg-slate-100 text-slate-900 dark:bg-white/[0.08] dark:text-slate-100'
                 : 'text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-white/[0.04] dark:hover:text-slate-200'
@@ -521,29 +633,9 @@ export function PostCard({
       {/* Expandable Comments Drawer */}
       {showComments && (
         <div className="mt-3.5 border-t border-slate-100 dark:border-white/[0.08] pt-3">
-          {/* Comment Form */}
+          {/* Post Comment Input */}
           {token ? (
             <div className="flex flex-col">
-              {replyingTo && (
-                <div className="flex items-center justify-between rounded-lg bg-accent-subtle px-2.5 py-1 text-xs text-accent-fg mb-2 border border-accent-subtle-border animate-in fade-in duration-150">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <CornerDownRight size={13} className="text-accent-fg shrink-0" />
-                    <span className="truncate">
-                      Replying to <span className="font-semibold">@{replyingTo.username}</span>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleCancelReply}
-                    className="shrink-0 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                    title="Cancel reply"
-                    aria-label="Cancel reply"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              )}
-
               <form onSubmit={handleAddComment} className="flex items-center gap-2.5 relative">
                 <MentionSuggestions
                   isOpen={isMentionOpen}
@@ -598,7 +690,7 @@ export function PostCard({
                         const handled = handleMentionKeyDown(e);
                         if (handled) return;
                       }}
-                      placeholder={replyingTo ? `Reply to @${replyingTo.username}…` : 'Write a thoughtful comment or reply…'}
+                      placeholder="Write a thoughtful comment…"
                       className={`relative w-full bg-transparent font-sans text-sm p-0 m-0 border-0 outline-none ${
                         (activeMentions.length > 0 || /@[a-zA-Z0-9_]+/i.test(commentText)) && commentText
                           ? 'text-transparent caret-slate-900 dark:caret-white'
@@ -614,7 +706,7 @@ export function PostCard({
                     className="flex items-center gap-1 shrink-0 rounded-lg bg-accent px-3 py-1 text-xs font-semibold text-accent-text transition-opacity disabled:opacity-30 hover:bg-accent-hover cursor-pointer"
                   >
                     <Send size={12} strokeWidth={2} />
-                    <span>{submittingComment ? '…' : replyingTo ? 'Reply' : 'Post'}</span>
+                    <span>{submittingComment ? '…' : 'Post'}</span>
                   </button>
                 </div>
               </form>
@@ -677,6 +769,11 @@ export function PostCard({
                   onReply={handleStartReply}
                   onOpenLikesModal={(cid) => setActiveCommentLikesId(cid)}
                   onTagClick={onTagClick}
+                  onCommentUpdated={handleCommentUpdated}
+                  onCommentDeleted={handleCommentDeleted}
+                  activeReplyTarget={replyTarget}
+                  onCancelReply={handleCancelReply}
+                  onSubmitReply={handleReplySubmit}
                 />
               ))}
             </div>
@@ -687,7 +784,7 @@ export function PostCard({
       {/* Post Likes Modal */}
       {showLikesModal && (
         <LikesModal
-          postId={post.id}
+          postId={currentPost.id}
           isOpen={showLikesModal}
           onClose={() => setShowLikesModal(false)}
         />
@@ -699,6 +796,16 @@ export function PostCard({
           commentId={activeCommentLikesId}
           isOpen={activeCommentLikesId !== null}
           onClose={() => setActiveCommentLikesId(null)}
+        />
+      )}
+
+      {/* Edit Post Modal */}
+      {isEditModalOpen && (
+        <EditPostModal
+          post={currentPost}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onPostUpdated={handlePostUpdated}
         />
       )}
     </article>

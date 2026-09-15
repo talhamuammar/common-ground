@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { X, Send, Bookmark, MessageCircle, CornerDownRight } from 'lucide-react';
+import { X, Send, Bookmark, MessageCircle } from 'lucide-react';
 import { API_URL, getErrorMessage, mediaUrl, Post, PostComment, ReactionType } from '../lib/api';
 import { broadcastReaction, useReactionsSync } from '../lib/reactions-realtime';
 import { relativeTime } from '../lib/time';
@@ -17,6 +17,7 @@ import { PostPhotoCarousel } from './post-photo-carousel';
 import { FormattedText } from './formatted-text';
 import { CommentItem } from './comment-item';
 import { useMentionAutocomplete, MentionSuggestions, renderEditorBackdrop } from './mention-autocomplete';
+import { EditPostModal } from './edit-post-modal';
 
 function FormattedContent({
   content,
@@ -38,6 +39,7 @@ export function FullscreenPostModal({
   isSaved,
   onToggleSave,
   onDeleted,
+  onUpdated,
   onTagClick,
 }: {
   post: Post;
@@ -45,10 +47,18 @@ export function FullscreenPostModal({
   isSaved: boolean;
   onToggleSave: (postId: number) => void;
   onDeleted?: (postId: number) => void;
+  onUpdated?: (post: Post) => void;
   onTagClick?: (tag: string) => void;
 }) {
   const { user, token } = useAuth();
   const { openAuthModal } = useAuthModal();
+
+  const [currentPost, setCurrentPost] = useState<Post>(post);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  useEffect(() => {
+    setCurrentPost(post);
+  }, [post]);
 
   const [currentReaction, setCurrentReaction] = useState<ReactionType | null>(() => {
     if (!user || !post.likes) return null;
@@ -61,7 +71,11 @@ export function FullscreenPostModal({
   const [activeCommentLikesId, setActiveCommentLikesId] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<PostComment[]>(post.comments || []);
-  const [replyingTo, setReplyingTo] = useState<{ commentId: number; username: string } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{
+    parentId: number;
+    targetId: number;
+    username: string;
+  } | null>(null);
   const commentInputRef = useRef<HTMLInputElement | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [commentError, setCommentError] = useState('');
@@ -101,20 +115,21 @@ export function FullscreenPostModal({
   }, [mentionedUsers, commentText]);
 
   const rawUrls: string[] = (
-    post.imageUrls && post.imageUrls.length > 0
-      ? post.imageUrls
-      : (post.imageUrl ? [post.imageUrl] : [])
+    currentPost.imageUrls && currentPost.imageUrls.length > 0
+      ? currentPost.imageUrls
+      : (currentPost.imageUrl ? [currentPost.imageUrl] : [])
   ).map((url) => mediaUrl(url)).filter(Boolean) as string[];
   const imageUrls = Array.from(new Set(rawUrls));
 
-  // Close on escape key
+  // Close on escape key (only when child modals like reactions or edit are not open)
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      if (showLikesModal || activeCommentLikesId !== null || isEditModalOpen) return;
       if (e.key === 'Escape') onClose();
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, showLikesModal, activeCommentLikesId, isEditModalOpen]);
 
   // Sync reactions if user or post changes
   useEffect(() => {
@@ -306,7 +321,7 @@ export function FullscreenPostModal({
     }
   }
 
-  const handleStartReply = (commentId: number, username: string) => {
+  const handleStartReply = (parentId: number, username: string, targetId?: number) => {
     if (!token) {
       openAuthModal({
         title: 'Join the discussion',
@@ -314,27 +329,70 @@ export function FullscreenPostModal({
       });
       return;
     }
-    setReplyingTo({ commentId, username });
-    setCommentText((prev) => {
-      const mention = `@${username} `;
-      if (prev.startsWith(mention)) return prev;
-      return `${mention}${prev}`;
+    setReplyTarget({
+      parentId,
+      targetId: targetId ?? parentId,
+      username,
     });
-    setMentionedUsers((prev) => {
-      if (prev.some((u) => u.username.toLowerCase() === username.toLowerCase())) return prev;
-      return [...prev, { id: 0, username, fullName: null, avatarUrl: null }];
-    });
-    setTimeout(() => {
-      commentInputRef.current?.focus();
-    }, 50);
   };
 
   const handleCancelReply = () => {
-    if (replyingTo) {
-      setCommentText((prev) => prev.replace(new RegExp(`^@${replyingTo.username}\\s*`), ''));
-      setMentionedUsers((prev) => prev.filter((u) => u.username.toLowerCase() !== replyingTo.username.toLowerCase()));
-      setReplyingTo(null);
+    setReplyTarget(null);
+  };
+
+  const handleReplySubmit = async (
+    parentId: number,
+    text: string,
+    mentionedUsernames: string[],
+  ) => {
+    if (!token) {
+      openAuthModal({
+        title: 'Join the discussion',
+        description: 'Sign up or log in to reply to this comment.',
+      });
+      return;
     }
+
+    const response = await fetch(`${API_URL}/posts/${post.id}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        content: text.trim(),
+        parentId,
+        mentionedUsernames,
+      }),
+    });
+    const payload: unknown = await response.json();
+    if (!response.ok) throw new Error(getErrorMessage(payload, 'Could not post reply'));
+
+    const createdComment = payload as PostComment;
+    setComments((prev) =>
+      prev.map((c) =>
+        c.id === parentId
+          ? {
+              ...c,
+              replies: [...(c.replies || []), createdComment],
+              _count: {
+                ...c._count,
+                likes: c._count?.likes ?? 0,
+                replies: (c.replies?.length ?? c._count?.replies ?? 0) + 1,
+              },
+            }
+          : c
+      )
+    );
+    setCurrentPost((prev) => ({
+      ...prev,
+      _count: {
+        ...prev._count,
+        likes: prev._count?.likes ?? 0,
+        comments: (prev._count?.comments ?? 0) + 1,
+      },
+    }));
+    setReplyTarget(null);
   };
 
   async function handleAddComment(e: React.FormEvent) {
@@ -352,9 +410,6 @@ export function FullscreenPostModal({
     setCommentError('');
     try {
       const activeUsernames = Array.from(new Set(mentionedUsers.map((u) => u.username)));
-      if (replyingTo && !activeUsernames.some((u) => u.toLowerCase() === replyingTo.username.toLowerCase())) {
-        activeUsernames.push(replyingTo.username);
-      }
 
       const response = await fetch(`${API_URL}/posts/${post.id}/comments`, {
         method: 'POST',
@@ -364,7 +419,6 @@ export function FullscreenPostModal({
         },
         body: JSON.stringify({
           content: commentText.trim(),
-          parentId: replyingTo?.commentId,
           mentionedUsernames: activeUsernames,
         }),
       });
@@ -372,35 +426,78 @@ export function FullscreenPostModal({
       if (!response.ok) throw new Error(getErrorMessage(payload, 'Could not post comment'));
 
       const createdComment = payload as PostComment;
-      if (replyingTo) {
-        setComments((prev) =>
-          prev.map((c) =>
-            c.id === replyingTo.commentId
-              ? {
-                  ...c,
-                  replies: [...(c.replies || []), createdComment],
-                  _count: {
-                    ...c._count,
-                    likes: c._count?.likes ?? 0,
-                    replies: (c.replies?.length ?? c._count?.replies ?? 0) + 1,
-                  },
-                }
-              : c
-          )
-        );
-      } else {
-        setComments((prev) => [...prev, createdComment]);
-      }
+      setComments((prev) => [...prev, createdComment]);
+      setCurrentPost((prev) => ({
+        ...prev,
+        _count: {
+          ...prev._count,
+          likes: prev._count?.likes ?? 0,
+          comments: (prev._count?.comments ?? 0) + 1,
+        },
+      }));
       setCommentText('');
       setMentionedUsers([]);
       closeMention();
-      setReplyingTo(null);
     } catch (cause) {
       setCommentError(cause instanceof Error ? cause.message : 'Could not post comment');
     } finally {
       setSubmittingComment(false);
     }
   }
+
+  const handlePostUpdated = (updated: Post) => {
+    setCurrentPost(updated);
+    if (onUpdated) onUpdated(updated);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('post-updated', { detail: updated }));
+    }
+  };
+
+  const handleCommentUpdated = (updated: PostComment) => {
+    setComments((prev) => {
+      if (!updated.parentId) {
+        return prev.map((c) => (c.id === updated.id ? { ...c, ...updated, replies: c.replies } : c));
+      }
+      return prev.map((c) => {
+        if (c.id === updated.parentId) {
+          const nextReplies = (c.replies || []).map((r) => (r.id === updated.id ? updated : r));
+          return { ...c, replies: nextReplies };
+        }
+        return c;
+      });
+    });
+  };
+
+  const handleCommentDeleted = (deletedId: number, parentId?: number | null) => {
+    setComments((prev) => {
+      if (!parentId) {
+        return prev.filter((c) => c.id !== deletedId);
+      }
+      return prev.map((c) => {
+        if (c.id === parentId) {
+          const nextReplies = (c.replies || []).filter((r) => r.id !== deletedId);
+          return {
+            ...c,
+            replies: nextReplies,
+            _count: {
+              ...c._count,
+              likes: c._count?.likes ?? 0,
+              replies: Math.max(0, (c.replies?.length ?? c._count?.replies ?? 1) - 1),
+            },
+          };
+        }
+        return c;
+      });
+    });
+    setCurrentPost((prev) => ({
+      ...prev,
+      _count: {
+        ...prev._count,
+        likes: prev._count?.likes ?? 0,
+        comments: Math.max(0, (prev._count?.comments ?? 1) - 1),
+      },
+    }));
+  };
 
   const totalCommentsCount = comments.reduce(
     (acc, c) => acc + 1 + (c.replies?.length || c._count?.replies || 0),
@@ -417,7 +514,17 @@ export function FullscreenPostModal({
       className={`fixed top-14 inset-x-0 bottom-0 z-40 flex items-center justify-center bg-black/85 backdrop-blur-xs animate-in fade-in duration-200 ${
         hasPhotos ? 'p-0 md:p-4 lg:p-6' : 'p-3 sm:p-4 md:p-6'
       }`}
-      onClick={onClose}
+      onClick={(e) => {
+        // If a nested child modal is open, do not close post modal
+        if (showLikesModal || activeCommentLikesId !== null || isEditModalOpen) {
+          e.stopPropagation();
+          return;
+        }
+        // Only close if clicking directly on the post-modal backdrop itself
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
     >
       {/* Top Bar Cross Close Button for photo posts (desktop only - mobile uses header close button) */}
       {hasPhotos && (
@@ -462,10 +569,10 @@ export function FullscreenPostModal({
           {/* Header */}
           <header className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-white/[0.08] shrink-0">
             <div className="flex items-center gap-3 min-w-0">
-              <Link href={`/profile/${encodeURIComponent(post.author.username)}`} onClick={onClose}>
+              <Link href={`/profile/${encodeURIComponent(currentPost.author.username)}`} onClick={onClose}>
                 <UserAvatar
-                  src={mediaUrl(post.author.avatarUrl)}
-                  name={post.author.fullName || post.author.username}
+                  src={mediaUrl(currentPost.author.avatarUrl)}
+                  name={currentPost.author.fullName || currentPost.author.username}
                   className="size-10 rounded-full shrink-0 text-xs font-semibold"
                   sizes="40px"
                 />
@@ -473,26 +580,27 @@ export function FullscreenPostModal({
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <Link
-                    href={`/profile/${encodeURIComponent(post.author.username)}`}
+                    href={`/profile/${encodeURIComponent(currentPost.author.username)}`}
                     onClick={onClose}
                     className="truncate text-sm font-bold text-slate-800 dark:text-slate-100 hover:underline flex items-center gap-1"
                   >
-                    <span>{post.author.fullName || post.author.username}</span>
-                    {post.author.isVerified && <VerifiedBadge size={14} />}
+                    <span>{currentPost.author.fullName || currentPost.author.username}</span>
+                    {currentPost.author.isVerified && <VerifiedBadge size={14} />}
                   </Link>
                 </div>
-                <time className="text-xs text-slate-400 dark:text-slate-500" dateTime={post.createdAt}>
-                  {relativeTime(post.createdAt)}
+                <time className="text-xs text-slate-400 dark:text-slate-500" dateTime={currentPost.createdAt}>
+                  {relativeTime(currentPost.createdAt)}
                 </time>
               </div>
             </div>
 
             <div className="flex items-center gap-1">
               <PostOptionsMenu
-                postId={post.id}
-                authorId={post.author.id}
+                postId={currentPost.id}
+                authorId={currentPost.author.id}
                 currentUserId={user?.id}
                 token={token}
+                onEdit={() => setIsEditModalOpen(true)}
                 onDeleted={(id) => {
                   if (onDeleted) onDeleted(id);
                   onClose();
@@ -512,11 +620,11 @@ export function FullscreenPostModal({
           {/* Scrollable Body: Post Content & Comments Thread */}
           <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-5 space-y-4 [scrollbar-width:thin]">
             {/* Post Content */}
-            {post.content && post.content.trim().length > 0 && (
+            {currentPost.content && currentPost.content.trim().length > 0 && (
               <div className="text-[15px] sm:text-[16px] leading-relaxed text-slate-800 dark:text-slate-200 [overflow-wrap:anywhere]">
                 <FormattedContent
-                  content={post.content}
-                  mentions={post.mentions}
+                  content={currentPost.content}
+                  mentions={currentPost.mentions}
                   onTagClick={(tag) => {
                     onClose();
                     if (onTagClick) onTagClick(tag);
@@ -577,6 +685,11 @@ export function FullscreenPostModal({
                         if (onTagClick) onTagClick(tag);
                       }}
                       onCloseParentModal={onClose}
+                      onCommentUpdated={handleCommentUpdated}
+                      onCommentDeleted={handleCommentDeleted}
+                      activeReplyTarget={replyTarget}
+                      onCancelReply={handleCancelReply}
+                      onSubmitReply={handleReplySubmit}
                     />
                   ))}
                 </div>
@@ -593,26 +706,6 @@ export function FullscreenPostModal({
             {/* Comment Form in Modal */}
             {token ? (
               <div className="flex flex-col">
-                {replyingTo && (
-                  <div className="flex items-center justify-between rounded-lg bg-accent-subtle px-2.5 py-1 text-xs text-accent-fg mb-2 border border-accent-subtle-border animate-in fade-in duration-150">
-                    <div className="flex items-center gap-1.5 truncate">
-                      <CornerDownRight size={13} className="text-accent-fg shrink-0" />
-                      <span className="truncate">
-                        Replying to <span className="font-semibold">@{replyingTo.username}</span>
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleCancelReply}
-                      className="shrink-0 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                      title="Cancel reply"
-                      aria-label="Cancel reply"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                )}
-
                 <form onSubmit={handleAddComment} className="flex items-center gap-2 relative">
                   <MentionSuggestions
                     isOpen={isMentionOpen}
@@ -668,7 +761,7 @@ export function FullscreenPostModal({
                           const handled = handleMentionKeyDown(e);
                           if (handled) return;
                         }}
-                        placeholder={replyingTo ? `Reply to @${replyingTo.username}…` : 'Write a thoughtful reply…'}
+                        placeholder="Write a thoughtful comment…"
                         className={`relative w-full bg-transparent font-sans text-sm p-0 m-0 border-0 outline-none ${
                           (activeMentions.length > 0 || /@[a-zA-Z0-9_]+/i.test(commentText)) && commentText
                             ? 'text-transparent caret-slate-900 dark:caret-white'
@@ -683,7 +776,7 @@ export function FullscreenPostModal({
                       className="flex items-center gap-1 shrink-0 rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-accent-text transition-opacity disabled:opacity-30 hover:bg-accent-hover cursor-pointer"
                     >
                       <Send size={12} strokeWidth={2} />
-                      <span>{submittingComment ? '…' : replyingTo ? 'Reply' : 'Post'}</span>
+                      <span>{submittingComment ? '…' : 'Post'}</span>
                     </button>
                   </div>
                 </form>
@@ -752,6 +845,16 @@ export function FullscreenPostModal({
           commentId={activeCommentLikesId}
           isOpen={activeCommentLikesId !== null}
           onClose={() => setActiveCommentLikesId(null)}
+        />
+      )}
+
+      {/* Edit Post Modal */}
+      {isEditModalOpen && (
+        <EditPostModal
+          post={currentPost}
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          onPostUpdated={handlePostUpdated}
         />
       )}
     </div>

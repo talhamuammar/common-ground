@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -119,6 +119,92 @@ export class PostsService {
     return enriched;
   }
 
+  async update(
+    userId: number,
+    postId: number,
+    content?: string,
+    newImageUrls: string[] = [],
+    retainedImageUrls?: string[],
+    mentionedUsernames: string[] = [],
+  ) {
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
+    if (!post) throw new NotFoundException('Post not found');
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You are only allowed to edit your own posts');
+    }
+
+    let currentImages: string[] = [];
+    if (post.imageUrl) currentImages.push(post.imageUrl);
+    if (Array.isArray(post.imageUrls)) {
+      currentImages.push(...post.imageUrls);
+    }
+    currentImages = Array.from(new Set(currentImages));
+
+    let baseImages: string[];
+    if (Array.isArray(retainedImageUrls)) {
+      baseImages = retainedImageUrls.filter((url) => currentImages.includes(url));
+    } else {
+      baseImages = currentImages;
+    }
+
+    const finalImageUrls = Array.from(new Set([...baseImages, ...newImageUrls]));
+    const primaryImage = finalImageUrls.length > 0 ? finalImageUrls[0] : null;
+
+    const trimmedContent = content !== undefined ? content.trim() : post.content;
+    if (!trimmedContent && finalImageUrls.length === 0) {
+      throw new BadRequestException('Post must contain text or at least one image');
+    }
+
+    // Delete removed images from Cloudinary in the background
+    const removedImages = currentImages.filter((img) => !finalImageUrls.includes(img));
+    if (removedImages.length > 0) {
+      this.cloudinary.deleteImages(removedImages).catch((err) => {
+        this.logger.warn(`Failed to clean up removed Cloudinary images for post ${postId}: ${err}`);
+      });
+    }
+
+    const updated = await this.prisma.post.update({
+      where: { id: postId },
+      data: {
+        content: trimmedContent,
+        imageUrl: primaryImage,
+        imageUrls: finalImageUrls,
+      },
+      include: postInclude,
+    });
+
+    if (trimmedContent) {
+      await this.handlePostMentions(userId, postId, trimmedContent, mentionedUsernames).catch(() => {});
+    }
+
+    const [enriched] = await this.attachMentionedUsers([normalizePost(updated)]);
+
+    if (mentionedUsernames.length > 0) {
+      const explicitUsers = await this.prisma.user.findMany({
+        where: {
+          username: { in: mentionedUsernames, mode: 'insensitive' },
+        },
+        select: {
+          username: true,
+          fullName: true,
+          isVerified: true,
+        },
+      });
+
+      const existingUsernames = new Set((enriched.mentions || []).map((m) => m.username.toLowerCase()));
+      const combined = [...(enriched.mentions || [])];
+      for (const u of explicitUsers) {
+        if (!existingUsernames.has(u.username.toLowerCase())) {
+          combined.push(u);
+          existingUsernames.add(u.username.toLowerCase());
+        }
+      }
+      enriched.mentions = combined;
+    }
+
+    return enriched;
+  }
+
   async findAll() {
     const posts = await this.prisma.post.findMany({
       take: 50,
@@ -178,12 +264,15 @@ export class PostsService {
       },
     });
 
+    const alreadyNotifiedUserIds: number[] = [];
+
     if (parentId) {
       const parentComment = await this.prisma.comment.findUnique({
         where: { id: parentId },
         select: { authorId: true },
       });
       if (parentComment && parentComment.authorId !== userId) {
+        alreadyNotifiedUserIds.push(parentComment.authorId);
         this.notifications.create({
           recipientId: parentComment.authorId,
           actorId: userId,
@@ -195,6 +284,7 @@ export class PostsService {
       }
     } else {
       if (post.authorId !== userId) {
+        alreadyNotifiedUserIds.push(post.authorId);
         this.notifications.create({
           recipientId: post.authorId,
           actorId: userId,
@@ -206,8 +296,8 @@ export class PostsService {
       }
     }
 
-    // Notify mentioned users with MENTION_COMMENT
-    await this.handleCommentMentions(userId, postId, comment.id, content, mentionedUsernames).catch(() => {});
+    // Notify mentioned users with MENTION_COMMENT, excluding recipient who already received a reply/comment notification
+    await this.handleCommentMentions(userId, postId, comment.id, content, mentionedUsernames, alreadyNotifiedUserIds).catch(() => {});
 
     // Immediately enrich returned comment with mentions metadata
     const [enriched] = await attachMentionedUsersToComments(this.prisma, [comment]);
@@ -258,6 +348,111 @@ export class PostsService {
     });
 
     return attachMentionedUsersToComments(this.prisma, comments);
+  }
+
+  async updateComment(
+    userId: number,
+    commentId: number,
+    content: string,
+    mentionedUsernames: string[] = [],
+  ) {
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+      include: {
+        post: { select: { id: true } },
+      },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+    if (comment.authorId !== userId) {
+      throw new ForbiddenException('You are only allowed to edit your own comments');
+    }
+
+    const trimmed = (content || '').trim();
+    if (!trimmed) {
+      throw new BadRequestException('Comment content cannot be empty');
+    }
+
+    const updated = await this.prisma.comment.update({
+      where: { id: commentId },
+      data: {
+        content: trimmed,
+      },
+      include: {
+        author: { select: { id: true, username: true, fullName: true, avatarUrl: true, isVerified: true } },
+        likes: { select: { userId: true, type: true } },
+        _count: { select: { likes: true, replies: true } },
+        replies: {
+          orderBy: { createdAt: 'asc' as const },
+          include: {
+            author: { select: { id: true, username: true, fullName: true, avatarUrl: true, isVerified: true } },
+            likes: { select: { userId: true, type: true } },
+            _count: { select: { likes: true } },
+          },
+        },
+      },
+    });
+
+    const excludeIds: number[] = [];
+    if (comment.parentId) {
+      const parentComment = await this.prisma.comment.findUnique({
+        where: { id: comment.parentId },
+        select: { authorId: true },
+      });
+      if (parentComment) excludeIds.push(parentComment.authorId);
+    }
+    await this.handleCommentMentions(userId, comment.postId, comment.id, trimmed, mentionedUsernames, excludeIds).catch(() => {});
+
+    const [enriched] = await attachMentionedUsersToComments(this.prisma, [updated]);
+
+    if (mentionedUsernames && mentionedUsernames.length > 0) {
+      const explicitUsers = await this.prisma.user.findMany({
+        where: {
+          username: { in: mentionedUsernames, mode: 'insensitive' },
+        },
+        select: {
+          username: true,
+          fullName: true,
+          isVerified: true,
+        },
+      });
+
+      const existingUsernames = new Set(((enriched as any).mentions || []).map((m: any) => m.username.toLowerCase()));
+      const combined = [...((enriched as any).mentions || [])];
+      for (const u of explicitUsers) {
+        if (!existingUsernames.has(u.username.toLowerCase())) {
+          combined.push(u);
+          existingUsernames.add(u.username.toLowerCase());
+        }
+      }
+      (enriched as any).mentions = combined;
+    }
+
+    return enriched;
+  }
+
+  async deleteComment(userId: number, commentId: number) {
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+      include: {
+        post: { select: { authorId: true } },
+      },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+
+    if (comment.authorId !== userId && comment.post.authorId !== userId) {
+      throw new ForbiddenException('You are not allowed to delete this comment');
+    }
+
+    await this.prisma.comment.delete({
+      where: { id: commentId },
+    });
+
+    return {
+      success: true,
+      id: commentId,
+      parentId: comment.parentId,
+      postId: comment.postId,
+    };
   }
 
   async toggleLike(userId: number, postId: number, reactionType = 'LIKE') {
@@ -690,6 +885,7 @@ export class PostsService {
     commentId: number,
     content: string,
     explicitUsernames: string[] = [],
+    excludeUserIds: number[] = [],
   ) {
     const mentionRegex = /(?:^|[^\w@])@(?:\[([a-zA-Z0-9_]+)\]\([^)]+\)|([a-zA-Z0-9_]+))/g;
     const matches: string[] = [...explicitUsernames];
@@ -706,12 +902,13 @@ export class PostsService {
     if (matches.length === 0) return;
 
     const uniqueUsernames = Array.from(new Set(matches.map((u) => u.toLowerCase())));
+    const excludeSet = new Set<number>([authorId, ...excludeUserIds]);
 
     try {
       const mentionedUsers = await this.prisma.user.findMany({
         where: {
           username: { in: uniqueUsernames, mode: 'insensitive' },
-          id: { not: authorId },
+          id: { notIn: Array.from(excludeSet) },
         },
         select: { id: true, username: true },
       });

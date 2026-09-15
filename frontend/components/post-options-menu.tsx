@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { MoreHorizontal, Trash2, Link2, Check, AlertCircle } from 'lucide-react';
+import { MoreHorizontal, Trash2, Link2, Check, AlertCircle, Pencil } from 'lucide-react';
 import { API_URL, getErrorMessage } from '../lib/api';
 
 interface PostOptionsMenuProps {
@@ -10,6 +10,7 @@ interface PostOptionsMenuProps {
   currentUserId?: number;
   token: string | null;
   postUrl?: string;
+  onEdit?: () => void;
   onDeleted?: (postId: number) => void;
 }
 
@@ -19,6 +20,7 @@ export function PostOptionsMenu({
   currentUserId,
   token,
   postUrl,
+  onEdit,
   onDeleted,
 }: PostOptionsMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -120,9 +122,23 @@ export function PostOptionsMenu({
             <span>{copied ? 'Link copied!' : 'Copy post link'}</span>
           </button>
 
-          {/* Delete Option (For Author) */}
+          {/* Author Options: Edit & Delete */}
           {isAuthor && (
             <div className="border-t border-slate-100 dark:border-white/[0.08] mt-1 pt-1">
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    onEdit();
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+                >
+                  <Pencil size={14} className="text-slate-400 shrink-0" />
+                  <span>Edit post</span>
+                </button>
+              )}
+
               {!confirmDelete ? (
                 <button
                   type="button"

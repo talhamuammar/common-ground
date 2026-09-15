@@ -73,6 +73,34 @@ export class NotificationsService {
       }
     }
 
+    // For comments, avoid duplicate notifications for the same comment to the same recipient:
+    // If a REPLY_COMMENT or COMMENT_POST exists, do not also send MENTION_COMMENT.
+    if (commentId) {
+      if (type === 'MENTION_COMMENT') {
+        const existing = await this.prisma.notification.findFirst({
+          where: {
+            recipientId,
+            actorId,
+            commentId,
+            type: { in: ['REPLY_COMMENT', 'COMMENT_POST'] },
+          },
+        });
+        if (existing) {
+          return existing;
+        }
+      } else if (type === 'REPLY_COMMENT' || type === 'COMMENT_POST') {
+        // If a MENTION_COMMENT was already created for this comment, remove it so REPLY_COMMENT takes precedence
+        await this.prisma.notification.deleteMany({
+          where: {
+            recipientId,
+            actorId,
+            commentId,
+            type: 'MENTION_COMMENT',
+          },
+        }).catch(() => {});
+      }
+    }
+
     return this.prisma.notification.create({
       data: {
         recipientId,
@@ -199,9 +227,24 @@ export class NotificationsService {
       }),
     );
 
+    const replyOrCommentPostKeys = new Set(
+      resolvedItems
+        .filter((it) => it.commentId && (it.type === 'REPLY_COMMENT' || it.type === 'COMMENT_POST'))
+        .map((it) => `${it.recipientId}-${it.commentId}`),
+    );
+
+    const filteredItems = resolvedItems.filter((item) => {
+      if (item.commentId && item.type === 'MENTION_COMMENT') {
+        if (replyOrCommentPostKeys.has(`${item.recipientId}-${item.commentId}`)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
     return {
-      items: resolvedItems,
-      total,
+      items: filteredItems,
+      total: Math.max(0, total - (resolvedItems.length - filteredItems.length)),
       unreadCount,
     };
   }

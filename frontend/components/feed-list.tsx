@@ -140,6 +140,22 @@ export function FeedList({ posts: initialPosts }: { posts: Post[] }) {
     return () => window.removeEventListener('post-created', handleGlobalPostCreated);
   }, []);
 
+  // Listen for posts updated globally
+  useEffect(() => {
+    const handleGlobalPostUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<Post>;
+      if (customEvent.detail) {
+        const updated = customEvent.detail;
+        setPosts((prev) => prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+        setActiveModalPost((current) => (current && current.id === updated.id ? { ...current, ...updated } : current));
+        setToastMessage('Post updated successfully');
+        setTimeout(() => setToastMessage(''), 3000);
+      }
+    };
+    window.addEventListener('post-updated', handleGlobalPostUpdated);
+    return () => window.removeEventListener('post-updated', handleGlobalPostUpdated);
+  }, []);
+
   // Live real-time reaction synchronization across cards and modals
   useReactionsSync(
     useCallback((event) => {
@@ -300,6 +316,13 @@ export function FeedList({ posts: initialPosts }: { posts: Post[] }) {
   function handlePostDeleted(deletedId: number) {
     setPosts(prev => prev.filter(p => p.id !== deletedId));
     setToastMessage('Post deleted successfully');
+    setTimeout(() => setToastMessage(''), 2500);
+  }
+
+  function handlePostUpdated(updatedPost: Post) {
+    setPosts(prev => prev.map(p => (p.id === updatedPost.id ? { ...p, ...updatedPost } : p)));
+    setActiveModalPost(current => (current && current.id === updatedPost.id ? { ...current, ...updatedPost } : current));
+    setToastMessage('Post updated successfully');
     setTimeout(() => setToastMessage(''), 2500);
   }
 
@@ -652,6 +675,7 @@ export function FeedList({ posts: initialPosts }: { posts: Post[] }) {
             isSaved={savedPostIds.includes(post.id)}
             onToggleSave={handleToggleSave}
             onDeleted={handlePostDeleted}
+            onUpdated={handlePostUpdated}
             onOpenModal={(p) => setActiveModalPost(p)}
           />
         ))}
@@ -707,6 +731,7 @@ export function FeedList({ posts: initialPosts }: { posts: Post[] }) {
             handlePostDeleted(id);
             setActiveModalPost(null);
           }}
+          onUpdated={handlePostUpdated}
           onTagClick={(tag) => {
             setActiveModalPost(null);
             handleTagSelect(tag);

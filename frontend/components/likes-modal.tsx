@@ -50,10 +50,13 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
   useEffect(() => {
     if (!isOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
     }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [isOpen, onClose]);
 
   // Fetch users who reacted to this post or comment
@@ -179,7 +182,10 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
       aria-modal="true"
       aria-label={commentId ? 'Reactions on this comment' : 'Reactions on this post'}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in duration-150"
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -197,7 +203,10 @@ export function LikesModal({ postId, commentId, isOpen, onClose }: LikesModalPro
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             className="grid size-8 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-white/10 dark:hover:text-slate-200 transition-colors cursor-pointer"
             aria-label="Close"
           >

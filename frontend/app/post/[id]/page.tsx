@@ -200,7 +200,8 @@ export default function PostDetailPage({
               isSaved={savedPostIds.includes(post.id)}
               onToggleSave={handleToggleSave}
               onDeleted={handlePostDeleted}
-              onOpenModal={(p) => setActiveModalPost(p)}
+              onUpdated={(updated) => setPost(updated)}
+              onPhotoClick={(p) => setActiveModalPost(p)}
               defaultShowComments={true}
             />
           </div>
@@ -215,6 +216,10 @@ export default function PostDetailPage({
           isSaved={savedPostIds.includes(activeModalPost.id)}
           onToggleSave={handleToggleSave}
           onDeleted={handlePostDeleted}
+          onUpdated={(updated) => {
+            setPost(updated);
+            setActiveModalPost(updated);
+          }}
         />
       )}
     </div>
