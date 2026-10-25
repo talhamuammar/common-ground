@@ -1,6 +1,6 @@
 # Common Ground
 
-A deliberately small social app prototype with exactly three capabilities: registering, logging in, and creating/viewing text posts.
+A deliberately small social app prototype with exactly three capabilities: registering, logging in, and creating/viewing posts.
 
 ## Stack
 
